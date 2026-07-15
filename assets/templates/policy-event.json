@@ -1,0 +1,11 @@
+{
+  "event_id": "PE-SR-001-01",
+  "task_id": "SR-001",
+  "timestamp": "",
+  "failure_class": "policy",
+  "visible_message": "",
+  "artifact_status": [],
+  "decision": "policy_blocked",
+  "fallback_task_id": null,
+  "coverage_gap": ""
+}

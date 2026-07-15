@@ -4,31 +4,41 @@ Persist state after every task transition and before any retry. Treat `run-state
 
 ## Failure Classes
 
-| Class | Trigger | Retry rule | Recorded outcome |
+| Class | Trigger | Retry rule | Terminal status |
 |---|---|---|---|
 | `transient` | API timeout, temporary tool error | Retry identical task at most twice | `blocked_technical` |
 | `worker_failure` | Crash or malformed output | Restart once from task contract | `incomplete` |
 | `context_limit` | Context exhaustion | Resume from artifacts and compact state | `incomplete` |
 | `missing_input` | Required artifact absent | No automatic retry | `needs_input` |
 | `authorization` | Required approval absent | No automatic retry | `needs_authorization` |
-| `insufficient_evidence` | Acceptance criteria unmet | One bounded evidence pass | Finding verdict `candidate` or `blocked`; task `incomplete` when no accepted output remains |
-| `conflict` | Material incompatible findings | Fresh independent verifier | Conflict record plus verifier task; preserve unresolved disagreement in limitations |
+| `insufficient_evidence` | Acceptance criteria unmet | One bounded evidence pass | `candidate` or `blocked` |
+| `conflict` | Material incompatible findings | Fresh independent verifier | `incomplete` plus a conflict record when disagreement remains |
 | `policy` | Safety or policy refusal | Never retry the same objective | `policy_blocked` |
 
 ## Resume Procedure
 
 1. Load `run-state.json` and validate it.
-2. Verify referenced task and evidence artifacts exist.
-3. Recompute runnable tasks from dependencies and terminal states.
-4. Do not reopen completed tasks unless their evidence became invalid.
-5. Restart only retryable tasks within their attempt budget.
-6. Route missing input, authorization, and policy blocks to the manager.
-7. Continue independent safe tasks.
-8. Record the resume timestamp and reason.
+2. If it uses schema v1 or v2, preserve a snapshot, migrate its contracts to v3, and pass strict-v3 preflight before dispatching runnable work.
+3. Verify referenced task and evidence artifacts exist.
+4. Recompute runnable tasks from dependencies and terminal states.
+5. Do not reopen completed tasks unless their evidence became invalid.
+6. Restart only retryable tasks within their attempt budget.
+7. Route missing input, authorization, and policy blocks to the manager.
+8. Continue independent safe tasks.
+9. Record the resume timestamp and reason.
 
 ## Safe Fallback Rules
 
 A fallback must change the objective to a materially safer defensive question. Record `fallback_of` and preserve the original blocked task. Examples include detection, mitigation, patch validation in a toy fixture, or non-operational explanation.
+
+For every policy refusal:
+
+1. Set the original task to `policy_blocked`; do not consume another attempt on the same objective.
+2. Append the visible event to `policy-events.jsonl` and summarize accessible artifacts in `blocked-worker-log.md`.
+3. Re-run composition review over the remaining graph.
+4. Ask whether an unanswered defensive question remains. Prefer `state_inventory`, `boundary_trace`, `control_review`, or `mitigation` fallbacks.
+5. Create a new task only when its objective and expected outputs are materially safer, set `fallback_of`, and update dependent tasks.
+6. Preserve the capability and evidence gap in verification and synthesis.
 
 Never:
 

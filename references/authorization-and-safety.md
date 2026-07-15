@@ -41,6 +41,33 @@ Present all fields before requesting approval:
 - sensitive data that may be observed;
 - stop condition and time window.
 
+Record approval in `run-state.json` using this structure; a boolean alone is not sufficient:
+
+```json
+{
+  "active_testing_approved": false,
+  "active_testing_approval": {
+    "approval_id": "",
+    "approved": false,
+    "approved_task_ids": [],
+    "target": "",
+    "owner": "",
+    "authorization_source": "",
+    "method_class": "",
+    "time_window": "",
+    "rate_limits": "",
+    "mutation": "",
+    "expected_traffic_or_side_effects": "",
+    "containment": "",
+    "rollback": "",
+    "sensitive_data_exposure": "",
+    "stop_conditions": []
+  }
+}
+```
+
+When approved, require canonical authorization tier `A1` or `A2` and non-empty values for every packet field. Keep `approved` equal to `active_testing_approved`. List every approved active task in `approved_task_ids`; each task must use the same `approval_id` in its safety block.
+
 ## Safety-Blocked Tasks
 
 Treat a safety refusal as terminal for that task definition. Do not route it to another worker or change wording to obtain the same capability.
@@ -62,4 +89,3 @@ Link the replacement with `fallback_of`, preserve the original `policy_blocked` 
 - Record the location and type of a secret, not its value.
 - Do not transmit private artifacts to external services without explicit approval.
 - Remove personal data and unnecessary exploit detail from synthesis outputs.
-

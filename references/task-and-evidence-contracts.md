@@ -7,57 +7,69 @@ Use the bundled JSON templates as the machine-readable source of truth.
 Every task must define:
 
 - `task_id`, `role`, `objective`, and one `research_question`;
-- `schema_version`, `phase`, and `execution_mode`;
 - `dependencies` and `assigned_paths`;
 - `inputs` with stable artifact locations;
-- a pinned `target_snapshot` and bounded `resource_requirements` for executable architecture tasks; non-architecture passive tasks may set `target_snapshot` to `null`;
 - `allowed_actions` and `prohibited_actions`;
 - `expected_outputs` and `acceptance_criteria`;
 - `evidence_requirements`;
 - `stop_conditions` and `escalation_conditions`;
+- a structured `safety` block with `purpose`, `task_class`, `capability_boundary`, `resource_scope`, `evidence_goal`, `active_actions`, `approval_ref`, `composition_dependencies`, and `safe_fallback`;
 - `status`, `attempts`, and `max_attempts`.
 
 Reject a task if its objective is broad, its outputs overlap another worker, or success cannot be tested.
 
-## Task Graph Contract
+Treat each `task_id` as a safe single path segment. A completed task must have non-empty declared outputs inside `tasks/<same-task-id>/`; only a `synthesis` task that owns `final/` may declare final-report outputs. Do not satisfy one task's contract with another task's artifact.
 
-Record graph edges, runnable waves, and exclusive resources in `run-state.json`.
+For `context`, `discovery`, and `analysis` tasks, enforce one resource family or trust boundary and one evidence goal. Split state inventory, boundary tracing, active validation, verification, and mitigation into separate tasks. A small file count does not make a task safe; the capability boundary and combined outputs determine safety.
 
-- Every edge is `[dependency_task_id, dependent_task_id]`.
-- A wave may contain only tasks whose dependencies terminate successfully before that wave starts.
-- A task appears in at most one planned wave.
-- Tasks sharing a mutable path or exclusive resource cannot occupy the same wave.
-- The graph must be acyclic and include every dispatched task.
+Use these task classes:
 
-Review and accept the complete graph before dispatch. Recompute it after a task becomes blocked, changes scope, or creates a new dependency.
+- `context_map`: effective implementation, configuration, trust boundaries, and ownership;
+- `passive_research`: one bounded advisory, history, version, standards, or primary-source question;
+- `state_inventory`: storage, lifecycle, inputs, outputs, and reset/flush coverage for one resource family;
+- `boundary_trace`: identity, authorization, privilege, tenant, or context signals across one boundary;
+- `control_review`: preventive, detective, recovery, and mitigation coverage;
+- `active_validation`: approved dynamic action with an explicit approval packet;
+- `evidence_normalization`: convert sourced observations into the common evidence/finding schema;
+- `risk_ranking`: rank verdict-bearing risks without adding new discovery claims;
+- `verification`: independent evidence and false-positive review;
+- `mitigation`: defensive design and regression checks;
+- `synthesis`: verdict-bearing artifact composition only.
 
-## Experiment Contract
+Map profile steps to canonical task classes rather than inventing new schema values:
 
-Use `assets/templates/experiment.json` for a controlled architecture experiment. Every experiment must define:
-
-- a stable ID, owning task, revision, and one falsifiable hypothesis;
-- independent, dependent, controlled, and nuisance variables;
-- the pinned target snapshot, workloads, controls, and observables;
-- seed and repetition policy;
-- command plan and expected artifacts;
-- acceptance, inconclusive, stop, and `resource_exhaustion_criteria`;
-- a resource budget and exclusive resources;
-- status.
-
-Changing an independent variable within the declared matrix creates a new cell. Changing a controlled variable, target snapshot, instrumentation, or workload creates a new experiment revision and must remain comparable only when justified.
+| Profile step | Task class |
+|---|---|
+| advisory research, change history, version analysis, standards lookup | `passive_research` |
+| surface cluster, discovery worker, inventory | `state_inventory` |
+| reachability, trust boundary, identity propagation | `boundary_trace` |
+| environment controls, control review | `control_review` |
+| finding normalization | `evidence_normalization` |
+| risk ranking | `risk_ranking` |
+| false-positive check, scenario verification | `verification` |
+| remediation or mitigation design | `mitigation` |
 
 ## Worker Prompt Envelope
 
 Construct worker prompts in this order:
 
-1. State the role and research question.
-2. Provide exact inputs and scope.
-3. List allowed and prohibited actions.
-4. State evidence and output requirements.
-5. State stop and escalation conditions.
-6. Require artifact paths and a concise completion summary.
+1. State defensive purpose, task class, and capability boundary.
+2. State the role and single research question.
+3. Provide exact inputs and one resource scope.
+4. List allowed and prohibited actions, including whether active actions are empty or approved.
+5. State evidence and output requirements.
+6. State stop and escalation conditions.
+7. Require artifact paths and a concise completion summary.
 
 Do not include other workers' conclusions or manager preferences.
+
+Schema v3 binds active work to the run approval packet: `active_validation` requires `active_authorized`, non-empty `active_actions`, a matching `approval_ref`, and membership in `active_testing_approval.approved_task_ids`. Versions 1 and 2 remain readable for archival validation. Migrate a legacy run to v3 and pass `preflight_tasks.py --strict-v3` before dispatching or resuming runnable work.
+
+## Policy Event Contract
+
+On a safety or policy refusal, append one record to `policy-events.jsonl` using the bundled template. Record only the visible failure message and artifact status; hidden model context is not available evidence. Mark the original task `policy_blocked` and preserve it.
+
+A fallback must answer a materially safer defensive question. Set `fallback_of` to the blocked task, use a new task ID, update dependencies, and state the lost coverage. Do not create several smaller tasks whose combined outputs reconstruct the blocked objective.
 
 ## Evidence Record
 
@@ -79,30 +91,18 @@ Write one JSON object per line in `evidence.jsonl`:
 
 Prefer primary artifacts: source code, configuration, logs, test output, standards, vendor advisories, and authoritative vulnerability records. Label secondary commentary as secondary.
 
-For architecture research, use precise evidence kinds such as `rtl`, `config`, `build_log`, `simulation_log`, `difftest`, `assertion`, `counter`, `trace`, `waveform`, `checkpoint`, and `analysis`. Evidence derived from a generated artifact must reference its artifact ID.
-
-## Artifact Manifest
-
-Write one object per line to `artifacts/manifest.jsonl` using `assets/templates/artifact-record.json`. Each artifact records its producer, optional experiment, kind, relative path, hash, target snapshot, tool versions, workload IDs, seed, timestamp, sensitivity, and retention decision.
-
-Do not cite a generated file that is absent from the manifest. Every manifest path must resolve inside the run directory and match its recorded hash. When a large raw artifact must remain in managed external storage, register a small in-run pointer record containing its stable external locator, external content hash, access conditions, and retention decision; cite the pointer artifact.
-
 ## Finding Contract
 
 Every finding must contain:
 
 - stable ID and concise title;
 - affected scope and preconditions;
-- security property, threat model, architectural state, microarchitectural state, and observation model when applicable;
 - observation, interpretation, and impact as separate fields;
 - evidence IDs;
 - counter-evidence and false-positive hypotheses;
-- counterfactual or control results for quantitative microarchitecture claims;
 - severity and confidence with short rationales;
 - verification status and verifier task ID;
 - remediation and regression-check proposal;
 - limitations and redactions.
 
 Never mark a finding `verified` solely because multiple agents repeat the same claim.
-
-For a `verified` finding, `verifier_task_id` must name a different task. High-impact architecture findings require an independent method or a documented reason why only corroboration is possible.

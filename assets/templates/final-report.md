@@ -6,10 +6,6 @@
 
 ## Method and Coverage
 
-## Design Snapshot and Reproducibility
-
-## Experiment Matrix and Artifact Coverage
-
 ## Verified Findings
 
 ## Corroborated and Candidate Findings

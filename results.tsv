@@ -1,3 +1,5 @@
 timestamp	commit	skill	old_score	new_score	status	dimension	note	eval_mode
 2026-07-15T14:38:23+08:00	baseline	security-research-orchestrator	-	89.3	baseline	-	3 prompts; 6 executions; 2 blind effect judges; runtime_warn=0	full_test
-2026-07-15T16:04:58+08:00	working-tree	security-research-orchestrator	86.5	94.1	keep	microarchitecture-layout	4 prompts; 16 executions; 2 cross-blind effect judges; current won 8/8; effect 9.81 vs 9.44; structure 91.8; 9 validator tests	full_test
+2026-07-15T18:30:00+08:00	round1-candidate-b	security-research-orchestrator	89.3	92.9	keep	policy-aware decomposition	4 prompts; 2 blind judges preferred bounded safety contracts and shared-state profile	dry_run
+2026-07-15T19:30:00+08:00	round2-candidate-y	security-research-orchestrator	81.8	89.2	keep	executable validation	blind-pair averages; composition, approval, cycles, ownership, and policy linkage strengthened	dry_run
+2026-07-15T20:45:00+08:00	round3-candidate-t	security-research-orchestrator	83.9	92.0	keep	release integrity	blind-pair averages for P over Q plus 22 deterministic regressions and 2 final SHIP confirmations	dry_run

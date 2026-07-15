@@ -1,58 +1,38 @@
 {
-  "schema_version": "1.1",
+  "schema_version": 3,
   "run_id": "SR-RUN-YYYYMMDD-001",
   "objective": "",
-  "research_profile": "microarchitecture-security",
   "scope": {
     "assets": [],
     "versions": [],
-    "environments": [],
-    "target_snapshot": {
-      "repository": "",
-      "commit": "",
-      "dirty": false,
-      "submodules": [],
-      "rtl_config": "",
-      "isa_privilege_assumptions": [],
-      "target_class": "static-rtl",
-      "toolchain": [],
-      "reference_model": null,
-      "workloads": []
-    }
+    "environments": []
   },
   "authorization_tier": "A0",
-  "authorization": {
-    "owner": "",
-    "evidence": [],
-    "time_window": null,
-    "method_classes": [],
-    "rate_limits": [],
-    "rollback_plan": "",
-    "data_handling": "",
-    "output_audience": ""
-  },
   "active_testing_approved": false,
+  "active_testing_approval": {
+    "approval_id": "",
+    "approved": false,
+    "approved_task_ids": [],
+    "target": "",
+    "owner": "",
+    "authorization_source": "",
+    "method_class": "",
+    "time_window": "",
+    "rate_limits": "",
+    "mutation": "",
+    "expected_traffic_or_side_effects": "",
+    "containment": "",
+    "rollback": "",
+    "sensitive_data_exposure": "",
+    "stop_conditions": []
+  },
   "allowed_actions": [],
   "prohibited_actions": [],
   "completion_criteria": [],
   "task_ids": [],
-  "task_graph": {
-    "edges": [],
-    "waves": [],
-    "exclusive_resources": []
-  },
-  "artifact_roots": {
-    "tasks": "tasks",
-    "experiments": "experiments",
-    "artifacts": "artifacts"
-  },
-  "resume": {
-    "checkpoint_id": null,
-    "completed_tasks": [],
-    "retryable_tasks": [],
-    "blocked_tasks": [],
-    "next_actions": []
-  },
+  "policy_event_log": "policy-events.jsonl",
+  "conflicts_file": "conflicts.json",
+  "preflight_exceptions": [],
   "composition_review": {
     "individual_tasks_within_scope": false,
     "combined_output_within_scope": false,

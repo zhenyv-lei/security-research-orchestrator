@@ -17,6 +17,8 @@ Failure at any gate prevents a `verified` verdict.
 
 Give the verifier the claim, scope, source artifacts, and evidence records. Withhold the discovery worker's confidence score and preferred verdict. Require a reasoned verdict plus evidence IDs and unresolved assumptions.
 
+For `verified` or `corroborated`, require a distinct completed `verification` task that depends on the finding's origin and contributes evidence cited by the finding. A resolved conflict likewise requires verifier-owned evidence and completed verifier artifacts; metadata naming a verifier is not sufficient.
+
 Cluster findings for verification only when they share the same root cause and evidence. Do not let clustering hide per-instance reachability differences.
 
 ## Conflict Resolution
@@ -56,4 +58,3 @@ Require the synthesizer to:
 - Task closure: 100% of tasks have a valid terminal state.
 - Conflict disclosure: 100% of unresolved material conflicts appear in limitations.
 - Redaction: no raw secrets or unnecessary personal data remain.
-

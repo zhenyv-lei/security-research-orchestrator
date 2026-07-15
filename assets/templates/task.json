@@ -1,27 +1,11 @@
 {
-  "schema_version": "1.1",
   "task_id": "SR-001",
   "role": "context",
-  "phase": "research-frame",
-  "execution_mode": "read-only",
   "objective": "",
   "research_question": "",
   "dependencies": [],
   "assigned_paths": [],
   "inputs": [],
-  "target_snapshot": {
-    "commit": "",
-    "rtl_config": "",
-    "target_class": "static-rtl",
-    "toolchain": [],
-    "workloads": []
-  },
-  "resource_requirements": {
-    "cpu": null,
-    "memory_gb": null,
-    "wall_time_minutes": null,
-    "exclusive_resources": []
-  },
   "allowed_actions": [],
   "prohibited_actions": [],
   "expected_outputs": ["report.md", "evidence.jsonl"],
@@ -29,6 +13,17 @@
   "evidence_requirements": [],
   "stop_conditions": [],
   "escalation_conditions": [],
+  "safety": {
+    "purpose": "defensive",
+    "task_class": "context_map",
+    "capability_boundary": "non_operational",
+    "resource_scope": [],
+    "evidence_goal": "",
+    "active_actions": [],
+    "approval_ref": null,
+    "composition_dependencies": [],
+    "safe_fallback": null
+  },
   "fallback_of": null,
   "status": "pending",
   "attempts": 0,
