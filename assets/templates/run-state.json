@@ -1,0 +1,23 @@
+{
+  "run_id": "SR-RUN-YYYYMMDD-001",
+  "objective": "",
+  "scope": {
+    "assets": [],
+    "versions": [],
+    "environments": []
+  },
+  "authorization_tier": "A0",
+  "active_testing_approved": false,
+  "allowed_actions": [],
+  "prohibited_actions": [],
+  "completion_criteria": [],
+  "task_ids": [],
+  "composition_review": {
+    "individual_tasks_within_scope": false,
+    "combined_output_within_scope": false,
+    "unnecessary_operational_detail_removed": false,
+    "sensitive_data_redacted": false
+  },
+  "status": "planning",
+  "updated_at": ""
+}

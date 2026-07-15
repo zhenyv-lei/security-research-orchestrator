@@ -1,0 +1,23 @@
+{
+  "finding_id": "F-SR-001-01",
+  "task_id": "SR-001",
+  "title": "",
+  "affected_scope": [],
+  "preconditions": [],
+  "observation": "",
+  "interpretation": "",
+  "impact": "",
+  "evidence_ids": [],
+  "counter_evidence": [],
+  "false_positive_hypotheses": [],
+  "severity": "undetermined",
+  "severity_rationale": "",
+  "confidence": "low",
+  "confidence_rationale": "",
+  "verification_status": "candidate",
+  "verifier_task_id": null,
+  "remediation": [],
+  "regression_checks": [],
+  "limitations": [],
+  "redactions": []
+}

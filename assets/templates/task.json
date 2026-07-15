@@ -1,0 +1,20 @@
+{
+  "task_id": "SR-001",
+  "role": "context",
+  "objective": "",
+  "research_question": "",
+  "dependencies": [],
+  "assigned_paths": [],
+  "inputs": [],
+  "allowed_actions": [],
+  "prohibited_actions": [],
+  "expected_outputs": ["report.md", "evidence.jsonl"],
+  "acceptance_criteria": [],
+  "evidence_requirements": [],
+  "stop_conditions": [],
+  "escalation_conditions": [],
+  "fallback_of": null,
+  "status": "pending",
+  "attempts": 0,
+  "max_attempts": 2
+}
