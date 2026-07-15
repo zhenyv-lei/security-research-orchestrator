@@ -56,7 +56,7 @@ Require the synthesizer to:
 - state incomplete coverage and policy or authorization blocks;
 - avoid adding uncited technical details.
 
-A completed v3 run has exactly one completed `synthesis` task that owns `final/final-report.md`, an exact `evidence-index.json`, a non-empty final checkpoint, substantive required report sections, and at least one row in the canonical claim-to-evidence table. Every matrix claim and evidence ID must exist, and each cited evidence record must list that claim in `supports`. The microarchitecture profile additionally requires populated design-snapshot and experiment/artifact sections.
+A completed v3 run has exactly one completed `synthesis` task that owns `final/final-report.md`, an exact `evidence-index.json`, a non-empty final checkpoint, substantive required report sections, and at least one row in the canonical claim-to-evidence table. Use exactly one row per claim, include every finding and all evidence declared by that finding, and reject duplicate claim or evidence IDs. Every matrix claim and evidence ID must exist, and each cited evidence record must list that claim in `supports`. The microarchitecture profile additionally requires populated design-snapshot and experiment/artifact sections.
 
 ## Acceptance Metrics
 

@@ -825,6 +825,30 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
                     errors,
                 )
 
+    def test_final_matrix_must_cover_every_finding_and_its_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            report_path = root / "final/final-report.md"
+            report = report_path.read_text(encoding="utf-8")
+            report = report.replace(
+                "| F-SR-002-01 | verified | EV-SR-002-01, EV-SR-003-01 | local fixture | synthetic only |",
+                "| C-SNAPSHOT | candidate | EV-SR-001-01 | local fixture | synthetic only |",
+            )
+            report_path.write_text(report, encoding="utf-8")
+            errors = self.errors_for(root)
+            self.assertTrue(any("omits finding claims" in error for error in errors), errors)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            report_path = root / "final/final-report.md"
+            report = report_path.read_text(encoding="utf-8")
+            report = report.replace("EV-SR-002-01, EV-SR-003-01", "EV-SR-002-01")
+            report_path.write_text(report, encoding="utf-8")
+            errors = self.errors_for(root)
+            self.assertTrue(any("omits finding evidence" in error for error in errors), errors)
+
     def test_task_and_experiment_status_matrix_is_enforced(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

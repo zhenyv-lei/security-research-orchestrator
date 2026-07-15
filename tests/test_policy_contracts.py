@@ -927,6 +927,17 @@ class OrchestratorRegressionTests(unittest.TestCase):
             self.assertTrue(any("unknown claim" in error for error in errors), errors)
             self.assertTrue(any("unknown evidence" in error for error in errors), errors)
 
+    def test_final_claim_matrix_rejects_duplicate_claim_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            write_completed_generic_run(root)
+            report_path = root / "final/final-report.md"
+            report = report_path.read_text(encoding="utf-8")
+            report += "| C-FIXTURE-01 | rejected | EV-SR-001-01 | local fixture | duplicate row |\n"
+            report_path.write_text(report, encoding="utf-8")
+            errors = validate_run(root)
+            self.assertTrue(any("duplicate claim" in error for error in errors), errors)
+
     def test_unlisted_task_directory_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "run"

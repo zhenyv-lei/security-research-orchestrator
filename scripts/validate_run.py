@@ -1320,6 +1320,7 @@ def validate_completed_run_package(
     seen_evidence: set[str],
     evidence_supports: dict[str, set[str]],
     finding_verdicts: dict[str, str],
+    finding_evidence_ids: dict[str, set[str]],
     errors: list[str],
 ) -> None:
     resume = state.get("resume", {})
@@ -1391,12 +1392,16 @@ def validate_completed_run_package(
     if not data_rows:
         errors.append("final report claim-to-evidence matrix has no claim rows")
     known_claims = {claim_id for claims in evidence_supports.values() for claim_id in claims}
+    matrix_claims: set[str] = set()
     for row_index, row in enumerate(data_rows, 1):
         columns = [column.strip().strip("`") for column in row.strip("|").split("|")]
         if len(columns) != 5 or any(not column for column in columns):
             errors.append(f"final report claim-to-evidence row {row_index} must have five non-empty columns")
             continue
         claim_id, verdict, evidence_cell, _, _ = columns
+        if claim_id in matrix_claims:
+            errors.append(f"final report claim-to-evidence matrix contains duplicate claim: {claim_id}")
+        matrix_claims.add(claim_id)
         if claim_id not in known_claims:
             errors.append(f"final report claim-to-evidence row references unknown claim: {claim_id}")
         if not is_enum_value(verdict, VERDICTS):
@@ -1409,11 +1414,24 @@ def validate_completed_run_package(
         if not evidence_ids:
             errors.append(f"final report claim-to-evidence row has no evidence IDs: {claim_id}")
             continue
+        if len(evidence_ids) != len(set(evidence_ids)):
+            errors.append(f"final report claim-to-evidence row has duplicate evidence IDs: {claim_id}")
+        missing_finding_evidence = finding_evidence_ids.get(claim_id, set()) - set(evidence_ids)
+        if missing_finding_evidence:
+            errors.append(
+                f"final report claim-to-evidence row omits finding evidence for {claim_id}: "
+                + ", ".join(sorted(missing_finding_evidence))
+            )
         for evidence_id in evidence_ids:
             if evidence_id not in seen_evidence:
                 errors.append(f"final report claim-to-evidence row references unknown evidence: {evidence_id}")
             elif claim_id not in evidence_supports.get(evidence_id, set()):
                 errors.append(f"final report evidence {evidence_id} does not support claim {claim_id}")
+    missing_findings = sorted(set(finding_verdicts) - matrix_claims)
+    if missing_findings:
+        errors.append(
+            "final report claim-to-evidence matrix omits finding claims: " + ", ".join(missing_findings)
+        )
 
 
 def validate_task_outputs(
@@ -1547,6 +1565,7 @@ def validate_run(run_dir: Path) -> list[str]:
     finding_refs: list[tuple[Path, str, list[str], str, str, Any]] = []
     seen_finding_ids: set[str] = set()
     finding_verdicts: dict[str, str] = {}
+    finding_evidence_ids: dict[str, set[str]] = {}
     policy_blocked_tasks: set[str] = set()
     task_records: dict[str, dict[str, Any]] = {}
     run_root = run_dir.resolve()
@@ -1908,6 +1927,8 @@ def validate_run(run_dir: Path) -> list[str]:
             else:
                 if not evidence_ids:
                     errors.append(f"finding must cite at least one evidence ID in {finding_path}")
+                if is_non_empty_text(finding_id):
+                    finding_evidence_ids[finding_id] = set(evidence_ids)
                 finding_refs.append(
                     (
                         finding_path,
@@ -2225,6 +2246,7 @@ def validate_run(run_dir: Path) -> list[str]:
                 seen_evidence,
                 evidence_supports,
                 finding_verdicts,
+                finding_evidence_ids,
                 errors,
             )
 
