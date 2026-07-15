@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.1",
+  "artifact_id": "ART-EXP-001-001",
+  "producer_task_id": "SR-005",
+  "experiment_id": "EXP-001",
+  "kind": "simulation_log",
+  "path": "experiments/EXP-001/results/run-001.log",
+  "hash": "sha256:",
+  "target_snapshot": {
+    "commit": "",
+    "rtl_config": "",
+    "target_class": "cycle-simulator"
+  },
+  "tool_versions": [],
+  "workload_ids": [],
+  "seed": null,
+  "generated_at": "",
+  "sensitivity": "internal",
+  "retention": "keep"
+}

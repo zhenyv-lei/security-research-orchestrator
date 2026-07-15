@@ -4,15 +4,15 @@ Persist state after every task transition and before any retry. Treat `run-state
 
 ## Failure Classes
 
-| Class | Trigger | Retry rule | Terminal status |
+| Class | Trigger | Retry rule | Recorded outcome |
 |---|---|---|---|
 | `transient` | API timeout, temporary tool error | Retry identical task at most twice | `blocked_technical` |
 | `worker_failure` | Crash or malformed output | Restart once from task contract | `incomplete` |
 | `context_limit` | Context exhaustion | Resume from artifacts and compact state | `incomplete` |
 | `missing_input` | Required artifact absent | No automatic retry | `needs_input` |
 | `authorization` | Required approval absent | No automatic retry | `needs_authorization` |
-| `insufficient_evidence` | Acceptance criteria unmet | One bounded evidence pass | `candidate` or `blocked` |
-| `conflict` | Material incompatible findings | Fresh independent verifier | `unresolved_conflict` |
+| `insufficient_evidence` | Acceptance criteria unmet | One bounded evidence pass | Finding verdict `candidate` or `blocked`; task `incomplete` when no accepted output remains |
+| `conflict` | Material incompatible findings | Fresh independent verifier | Conflict record plus verifier task; preserve unresolved disagreement in limitations |
 | `policy` | Safety or policy refusal | Never retry the same objective | `policy_blocked` |
 
 ## Resume Procedure
@@ -47,4 +47,3 @@ Permit partial delivery when independent tasks completed and limitations are exp
 - impact on confidence and conclusions;
 - exact input or authorization required to resume;
 - safe fallback work already performed.
-

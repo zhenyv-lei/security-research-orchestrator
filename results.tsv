@@ -1,2 +1,3 @@
 timestamp	commit	skill	old_score	new_score	status	dimension	note	eval_mode
 2026-07-15T14:38:23+08:00	baseline	security-research-orchestrator	-	89.3	baseline	-	3 prompts; 6 executions; 2 blind effect judges; runtime_warn=0	full_test
+2026-07-15T16:04:58+08:00	working-tree	security-research-orchestrator	86.5	94.1	keep	microarchitecture-layout	4 prompts; 16 executions; 2 cross-blind effect judges; current won 8/8; effect 9.81 vs 9.44; structure 91.8; 9 validator tests	full_test

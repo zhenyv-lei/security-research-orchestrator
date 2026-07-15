@@ -1,17 +1,58 @@
 {
+  "schema_version": "1.1",
   "run_id": "SR-RUN-YYYYMMDD-001",
   "objective": "",
+  "research_profile": "microarchitecture-security",
   "scope": {
     "assets": [],
     "versions": [],
-    "environments": []
+    "environments": [],
+    "target_snapshot": {
+      "repository": "",
+      "commit": "",
+      "dirty": false,
+      "submodules": [],
+      "rtl_config": "",
+      "isa_privilege_assumptions": [],
+      "target_class": "static-rtl",
+      "toolchain": [],
+      "reference_model": null,
+      "workloads": []
+    }
   },
   "authorization_tier": "A0",
+  "authorization": {
+    "owner": "",
+    "evidence": [],
+    "time_window": null,
+    "method_classes": [],
+    "rate_limits": [],
+    "rollback_plan": "",
+    "data_handling": "",
+    "output_audience": ""
+  },
   "active_testing_approved": false,
   "allowed_actions": [],
   "prohibited_actions": [],
   "completion_criteria": [],
   "task_ids": [],
+  "task_graph": {
+    "edges": [],
+    "waves": [],
+    "exclusive_resources": []
+  },
+  "artifact_roots": {
+    "tasks": "tasks",
+    "experiments": "experiments",
+    "artifacts": "artifacts"
+  },
+  "resume": {
+    "checkpoint_id": null,
+    "completed_tasks": [],
+    "retryable_tasks": [],
+    "blocked_tasks": [],
+    "next_actions": []
+  },
   "composition_review": {
     "individual_tasks_within_scope": false,
     "combined_output_within_scope": false,

@@ -2,6 +2,23 @@
 
 Select the smallest profile that satisfies the research goal. Add tasks only when they answer a distinct question.
 
+## Microarchitecture and ISA Security Research
+
+Use `references/microarchitecture-research.md` as the detailed playbook.
+
+1. `research-frame`: define the security property, threat model, architectural assumptions, and non-goals.
+2. `design-snapshot`: pin commits, submodules, RTL/configuration, target class, toolchain, reference model, workloads, and resource limits.
+3. `architecture-map`: map relevant structures, speculation/flush boundaries, privilege transitions, observables, and existing validation hooks.
+4. `hypothesis-design`: create falsifiable hypotheses and a controlled experiment matrix.
+5. `build-calibration`: reproduce the build, run smoke and reference checks, and estimate variance/resources.
+6. `experiment-workers`: execute independent matrix cells into isolated result directories.
+7. `analysis-normalization`: preserve raw-to-derived provenance and normalize units, exclusions, and confounders.
+8. `independent-verification`: repeat with counterfactuals, a reference model, or an alternate method.
+9. `mitigation-evaluation`: check security, functional, and performance regressions.
+10. `synthesis`: report the pinned snapshot, experiment coverage, verdicts, and reproducibility limits.
+
+Do not dispatch experiment workers until `design-snapshot`, `hypothesis-design`, and `build-calibration` are accepted.
+
 ## Source-Code Security Audit
 
 1. `context-map`: map architecture, trust boundaries, entry points, critical assets, and build/test paths.
@@ -43,4 +60,5 @@ Do not parallelize before `context-map` identifies stable component boundaries.
 - Use parallel workers for independent components, advisory sources, or trust boundaries.
 - Use a separate verifier for high-impact or ambiguous findings.
 - Use a fresh synthesizer after evidence normalization; never use it for discovery.
-
+- Treat simulator builds, FPGA boards, licensed tools, high-memory nodes, and mutable checkpoints as exclusive resources.
+- Group architecture tasks by independent question or experiment cell, not by arbitrary RTL file ranges.
