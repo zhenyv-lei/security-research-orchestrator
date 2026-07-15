@@ -31,6 +31,15 @@
     "seeds": [],
     "repetitions": 1
   },
+  "cells": [
+    {
+      "cell_id": "CELL-001",
+      "label": "",
+      "variable_assignments": {
+        "configuration": ""
+      }
+    }
+  ],
   "command_plan": [],
   "expected_artifacts": [],
   "acceptance_criteria": [],

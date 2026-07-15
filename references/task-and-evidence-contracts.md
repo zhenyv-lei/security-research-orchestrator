@@ -2,9 +2,11 @@
 
 Use the bundled JSON templates as the machine-readable source of truth.
 
+Every dispatchable run uses integer schema v3, one allowed `research_profile`, the general authorization packet, exact task graph, fixed artifact roots, and resume checkpoint lists. The graph must have one dependency-free `context_map` alone in its first non-blocked wave, declare every task once, reproduce task dependencies exactly, and list each exclusive resource once. Earlier waves may preserve only `policy_blocked` or cancelled contracts. Resume task lists must exactly match task statuses.
+
 ## Task Contract
 
-Every task must define:
+Every schema v3 task must set integer `schema_version: 3` and define:
 
 - `task_id`, `role`, `objective`, and one `research_question`;
 - `dependencies` and `assigned_paths`;
@@ -65,7 +67,7 @@ Construct worker prompts in this order:
 
 Do not include other workers' conclusions or manager preferences.
 
-Schema v3 binds active work to the run approval packet: `active_validation` requires `active_authorized`, non-empty `active_actions`, a matching `approval_ref`, and membership in `active_testing_approval.approved_task_ids`. Integer versions 1 and 2 remain readable for archival validation; the former microarchitecture draft string `"1.1"` is not dispatchable. Migrate legacy contracts to integer v3 and pass `preflight_tasks.py --strict-v3` before dispatching or resuming runnable work.
+Schema v3 binds active work to the run approval packet: `active_validation` requires `active_authorized`, non-empty `active_actions`, a matching `approval_ref`, and membership in `active_testing_approval.approved_task_ids`. The validator checks dynamic intent in objectives, research questions, allowed actions, and active actions, including common English and Chinese verbs; wording does not override the structural boundary. Integer versions 1 and 2 remain readable for archival validation. Other integers, booleans, strings, and the former microarchitecture draft `"1.1"` fail closed. Migrate legacy contracts to integer v3 and pass `preflight_tasks.py --strict-v3` before dispatching or resuming runnable work.
 
 ## Microarchitecture Experiment Contract
 
@@ -74,10 +76,13 @@ Use `assets/templates/experiment.json` only for an approved `active_validation` 
 - the same `approval_ref` as the task and run approval packet;
 - one falsifiable hypothesis and non-empty independent, dependent, and controlled variables;
 - pinned target snapshot, workloads, controls, observables, seeds/repetitions, stop criteria, and resource budget;
+- explicit, uniquely labeled `cells` for each independent-variable assignment; realized artifacts must cover every cell x workload x seed x repetition coordinate;
 - expected artifact IDs before execution;
 - a new `revision` whenever commands, target configuration, workload, seeds, instrumentation, or budget changes.
 
-Write results only under `experiments/<experiment-id>/results/`. Register each realized result in `artifacts/manifest.jsonl` using `assets/templates/artifact-record.json`. The producer must own the experiment; the record must carry the matching snapshot and a populated SHA-256 hash. Planned experiments need contracts but not realized artifacts. Completed experiments and artifact-backed evidence require the manifest.
+Write results only under `experiments/<experiment-id>/results/`. Register each realized result in `artifacts/manifest.jsonl` using `assets/templates/artifact-record.json`. The producer must own the experiment; the record must carry the matching snapshot, experiment revision, canonical experiment-contract SHA-256, cell ID, integer seed, repetition index, and populated file SHA-256. Compute the contract hash from canonical sorted-key JSON excluding only mutable `status`. Planned experiments must not have realized artifacts. Completed experiments and artifact-backed evidence require the manifest; every completed cell needs at least one registered artifact.
+
+Artifact `kind` is one of `build_log`, `simulation_log`, `difftest`, `counter`, `trace`, `waveform`, `checkpoint`, `analysis`, `binary`, `config_snapshot`, `coverage`, `formal_log`, `metrics`, or `report`. Sensitivity is `public`, `internal`, `confidential`, or `restricted`; retention is `keep`, `review`, `delete-after-run`, or `delete-after-review`. `generated_at` is an ISO-8601 timestamp with a timezone.
 
 ## Policy Event Contract
 
@@ -106,7 +111,9 @@ Write one JSON object per line in `evidence.jsonl`:
 
 Prefer primary artifacts: source code, configuration, logs, test output, standards, vendor advisories, and authoritative vulnerability records. Label secondary commentary as secondary.
 
-Set `artifact_id` when an evidence record depends on a generated experiment artifact. Leave it absent or null for source-only evidence; never cite an unregistered log, waveform, counter dump, or analysis output.
+Set `artifact_id` when an evidence record depends on a generated experiment artifact. Every evidence record produced by an `active_validation` task requires it, including derived `analysis`. Leave it absent or null for source-only evidence; never cite an unregistered log, waveform, counter dump, or analysis output.
+
+Use one evidence `kind` from `source_code`, `configuration`, `test_output`, `standard`, `vendor_advisory`, `authoritative_record`, `secondary_commentary`, `build_log`, `simulation_log`, `formal_log`, `difftest`, `counter`, `trace`, `waveform`, `checkpoint`, `analysis`, or `report`. Use the same sensitivity enum as artifact records.
 
 ## Finding Contract
 
@@ -123,3 +130,5 @@ Every finding must contain:
 - limitations and redactions.
 
 Never mark a finding `verified` solely because multiple agents repeat the same claim.
+
+For `verified` and `corroborated`, make counter-evidence, false-positive hypotheses, regression checks, severity/confidence rationales, and limitations substantive. Verifier-owned evidence must list the finding ID in `supports`; naming a verifier without this cross-link does not satisfy verification.

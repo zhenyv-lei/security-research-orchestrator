@@ -40,17 +40,19 @@ def approval_packet(approved: bool = False, task_ids: list[str] | None = None) -
 
 
 def task(task_id: str, task_class: str = "context_map", dependencies: list[str] | None = None) -> dict:
+    synthesis = task_class == "synthesis"
     return {
+        "schema_version": 3,
         "task_id": task_id,
-        "role": "context",
+        "role": "synthesis" if synthesis else "context",
         "objective": "Establish one bounded evidence claim.",
         "research_question": "Which source artifact establishes the configured ownership boundary?",
         "dependencies": dependencies or [],
-        "assigned_paths": [f"tasks/{task_id}"],
+        "assigned_paths": ["final"] if synthesis else [f"tasks/{task_id}"],
         "inputs": ["repo@commit"],
         "allowed_actions": ["read local artifacts"],
         "prohibited_actions": ["active testing"],
-        "expected_outputs": ["report.md"],
+        "expected_outputs": ["final/final-report.md"] if synthesis else ["report.md"],
         "acceptance_criteria": ["one cited claim"],
         "evidence_requirements": ["stable locator"],
         "stop_conditions": ["scope ambiguity"],
@@ -80,6 +82,16 @@ def run_state(task_ids: list[str], schema_version: int = 3) -> dict:
         "objective": "Validate orchestration contracts.",
         "scope": {"assets": ["local fixture"]},
         "authorization_tier": "A0",
+        "authorization": {
+            "owner": "fixture owner",
+            "evidence": ["local fixture request"],
+            "time_window": None,
+            "method_classes": ["passive local source review"],
+            "rate_limits": ["repository reads only"],
+            "rollback_plan": "remove only generated fixture outputs",
+            "data_handling": "keep fixture evidence local",
+            "output_audience": "fixture maintainers",
+        },
         "active_testing_approved": False,
         "allowed_actions": ["read local fixture"],
         "prohibited_actions": ["external interaction"],
@@ -98,9 +110,23 @@ def run_state(task_ids: list[str], schema_version: int = 3) -> dict:
     if schema_version >= 3:
         state.update(
             {
+                "research_profile": "source-code-security-audit",
                 "active_testing_approval": approval_packet(),
                 "conflicts_file": "conflicts.json",
                 "preflight_exceptions": [],
+                "task_graph": {"edges": [], "waves": [], "exclusive_resources": []},
+                "artifact_roots": {
+                    "tasks": "tasks",
+                    "experiments": "experiments",
+                    "artifacts": "artifacts",
+                },
+                "resume": {
+                    "checkpoint_id": None,
+                    "completed_tasks": [],
+                    "retryable_tasks": [],
+                    "blocked_tasks": [],
+                    "next_actions": [],
+                },
             }
         )
     return state
@@ -108,6 +134,35 @@ def run_state(task_ids: list[str], schema_version: int = 3) -> dict:
 
 def write_run(root: Path, state: dict, tasks: list[dict], events: list[dict] | None = None,
               conflicts: list[dict] | None = None) -> None:
+    if state.get("schema_version", 1) == 3:
+        if state.get("task_graph") == {"edges": [], "waves": [], "exclusive_resources": []}:
+            state["task_graph"] = {
+                "edges": [
+                    [dependency, record["task_id"]]
+                    for record in tasks
+                    for dependency in record.get("dependencies", [])
+                ],
+                "waves": [[record["task_id"]] for record in tasks],
+                "exclusive_resources": [],
+            }
+        resume = state.get("resume")
+        if isinstance(resume, dict) and all(
+            not resume.get(field) for field in ("completed_tasks", "retryable_tasks", "blocked_tasks", "next_actions")
+        ):
+            state["resume"] = {
+                "checkpoint_id": "CP-FINAL" if state.get("status") == "completed" else None,
+                "completed_tasks": [record["task_id"] for record in tasks if record.get("status") == "completed"],
+                "retryable_tasks": [
+                    record["task_id"] for record in tasks if record.get("status") == "retryable_error"
+                ],
+                "blocked_tasks": [
+                    record["task_id"]
+                    for record in tasks
+                    if record.get("status")
+                    in {"incomplete", "needs_input", "needs_authorization", "blocked_technical", "policy_blocked"}
+                ],
+                "next_actions": [],
+            }
     root.mkdir(parents=True, exist_ok=True)
     (root / "run-state.json").write_text(json.dumps(state), encoding="utf-8")
     for record in tasks:
@@ -117,7 +172,7 @@ def write_run(root: Path, state: dict, tasks: list[dict], events: list[dict] | N
     if events is not None:
         payload = "".join(json.dumps(event) + "\n" for event in events)
         (root / "policy-events.jsonl").write_text(payload, encoding="utf-8")
-    if state.get("schema_version", 1) >= 3:
+    if state.get("schema_version", 1) == 3:
         (root / "conflicts.json").write_text(json.dumps(conflicts or []), encoding="utf-8")
 
 
@@ -158,11 +213,41 @@ def finding(task_id: str, evidence_ids: list[str], verdict: str, verifier_task_i
         "interpretation": "The observation supports only the bounded claim.",
         "impact": "No external impact.",
         "evidence_ids": evidence_ids,
+        "counter_evidence": ["No contradicting fixture evidence was identified."],
+        "false_positive_hypotheses": ["The observation could be fixture-specific."],
+        "severity": "informational",
+        "severity_rationale": "The fixture has no production impact.",
+        "confidence": "high",
+        "confidence_rationale": "The source locator and independent fixture evidence agree.",
         "verification_status": verdict,
         "verifier_task_id": verifier_task_id,
         "remediation": ["Retain the validation contract."],
+        "regression_checks": ["Re-run the bounded fixture validator."],
         "limitations": ["Synthetic fixture only."],
+        "redactions": [],
     }
+
+
+def completed_report() -> str:
+    return """# Security Research Report
+
+## Executive Summary
+The bounded fixture completed with one evidence-backed claim.
+
+## Scope and Authorization
+Only the local fixture and read-only source review were in scope.
+
+## Method and Coverage
+The run checked the declared source locator and task contract.
+
+## Conflicts, Blocks, and Limitations
+No conflicts were observed; conclusions apply only to the fixture.
+
+## Claim-to-Evidence Matrix
+| Claim ID | Verdict | Evidence IDs | Scope | Limitations |
+|---|---|---|---|---|
+| C-FIXTURE-01 | candidate | EV-SR-001-01 | local fixture | synthetic only |
+"""
 
 
 class OrchestratorRegressionTests(unittest.TestCase):
@@ -192,16 +277,22 @@ class OrchestratorRegressionTests(unittest.TestCase):
             root = Path(temp) / "run"
             context = task("SR-001")
             context["status"] = "completed"
-            state = run_state(["SR-001"])
+            synthesis = task("SR-002", "synthesis", ["SR-001"])
+            synthesis["status"] = "completed"
+            state = run_state(["SR-001", "SR-002"])
             state["status"] = "completed"
-            write_run(root, state, [context])
+            write_run(root, state, [context, synthesis])
             task_dir = root / "tasks" / "SR-001"
             (task_dir / "report.md").write_text("# Completed report\n", encoding="utf-8")
             (task_dir / "evidence.jsonl").write_text(
                 json.dumps(evidence("SR-001", "EV-SR-001-01")) + "\n", encoding="utf-8"
             )
+            (root / "evidence-index.json").write_text(
+                json.dumps({"schema_version": 3, "records": [{"evidence_id": "EV-SR-001-01"}]}),
+                encoding="utf-8",
+            )
             (root / "final").mkdir()
-            (root / "final" / "final-report.md").write_text("# Final report\n", encoding="utf-8")
+            (root / "final" / "final-report.md").write_text(completed_report(), encoding="utf-8")
             self.assertEqual(validate_run(root), [])
 
     def test_boolean_only_v2_remains_compatible(self) -> None:
@@ -410,6 +501,7 @@ class OrchestratorRegressionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "run"
             context = task("SR-001")
+            context["status"] = "completed"
             verifier = task("SR-002", "verification", ["SR-001"])
             verifier["role"] = "verification"
             verifier["status"] = "completed"
@@ -418,11 +510,14 @@ class OrchestratorRegressionTests(unittest.TestCase):
             write_run(root, state, [context, verifier])
             origin_dir = root / "tasks" / "SR-001"
             verifier_dir = root / "tasks" / "SR-002"
+            origin_dir.joinpath("report.md").write_text("# Origin report\n", encoding="utf-8")
             origin_dir.joinpath("evidence.jsonl").write_text(
                 json.dumps(evidence("SR-001", "EV-SR-001-01")) + "\n", encoding="utf-8"
             )
+            verifier_evidence = evidence("SR-002", "EV-SR-002-01")
+            verifier_evidence["supports"] = ["F-SR-001-01"]
             verifier_dir.joinpath("evidence.jsonl").write_text(
-                json.dumps(evidence("SR-002", "EV-SR-002-01")) + "\n", encoding="utf-8"
+                json.dumps(verifier_evidence) + "\n", encoding="utf-8"
             )
             verifier_dir.joinpath("report.md").write_text("# Independent verdict\n", encoding="utf-8")
             origin_dir.joinpath("finding-001.json").write_text(
@@ -499,7 +594,7 @@ class OrchestratorRegressionTests(unittest.TestCase):
             write_run(root, run_state(["SR-001"]), [context])
             (root / "tasks" / "SR-001" / "output").symlink_to(outside, target_is_directory=True)
             errors, _ = preflight(root, strict_v2=True)
-            self.assertTrue(any("assigned path escapes task ownership" in error for error in errors))
+            self.assertTrue(any("ownership" in error for error in errors), errors)
 
     def test_symlink_task_root_escape_fails_preflight(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -516,6 +611,218 @@ class OrchestratorRegressionTests(unittest.TestCase):
             (root / "tasks" / "SR-001").symlink_to(outside, target_is_directory=True)
             errors, _ = preflight(root, strict_v2=True)
             self.assertTrue(any("task directory escapes run ownership" in error for error in errors), errors)
+
+    def test_v3_requires_exact_known_schema_at_run_and_task_levels(self) -> None:
+        for invalid_version in (4, True, "3"):
+            with self.subTest(run_schema=invalid_version), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / "run"
+                context = task("SR-001")
+                state = run_state(["SR-001"])
+                state["schema_version"] = invalid_version
+                write_run(root, state, [context])
+                self.assertTrue(any("supported integer versions" in error for error in validate_run(root)))
+
+        for task_version in (None, 4, True):
+            with self.subTest(task_schema=task_version), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / "run"
+                context = task("SR-001")
+                if task_version is None:
+                    context.pop("schema_version")
+                else:
+                    context["schema_version"] = task_version
+                write_run(root, run_state(["SR-001"]), [context])
+                self.assertTrue(any("task" in error and "schema_version" in error for error in validate_run(root)))
+
+    def test_non_object_contracts_fail_closed_without_exceptions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            root.mkdir(parents=True)
+            (root / "run-state.json").write_text("[]", encoding="utf-8")
+            self.assertTrue(any("expected object" in error for error in validate_run(root)))
+
+        for contract in ("task", "evidence", "finding", "policy-event"):
+            with self.subTest(contract=contract), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / "run"
+                context = task("SR-001")
+                write_run(root, run_state(["SR-001"]), [context])
+                task_dir = root / "tasks" / "SR-001"
+                if contract == "task":
+                    (task_dir / "task.json").write_text("[]", encoding="utf-8")
+                elif contract == "evidence":
+                    (task_dir / "evidence.jsonl").write_text("[]\n", encoding="utf-8")
+                elif contract == "finding":
+                    (task_dir / "finding-001.json").write_text("[]", encoding="utf-8")
+                else:
+                    (root / "policy-events.jsonl").write_text("[]\n", encoding="utf-8")
+                errors = validate_run(root)
+                self.assertTrue(any("expected object" in error for error in errors), errors)
+
+    def test_v3_common_envelope_and_profile_are_fail_closed(self) -> None:
+        for field in ("research_profile", "authorization", "task_graph", "artifact_roots", "resume"):
+            with self.subTest(missing=field), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / "run"
+                context = task("SR-001")
+                state = run_state(["SR-001"])
+                state.pop(field)
+                write_run(root, state, [context])
+                self.assertTrue(any(field in error for error in validate_run(root)))
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            context = task("SR-001")
+            state = run_state(["SR-001"])
+            state["research_profile"] = "microarchitecture-securit"
+            write_run(root, state, [context])
+            self.assertTrue(any("research_profile" in error for error in validate_run(root)))
+
+    def test_pending_output_contract_cannot_escape_ownership(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            context = task("SR-001")
+            context["expected_outputs"] = ["../../outside.md"]
+            write_run(root, run_state(["SR-001"]), [context])
+            errors, _ = preflight(root, strict_v3=True)
+            self.assertTrue(any("expected output escapes" in error for error in errors), errors)
+
+    def test_task_collection_and_graph_duplicates_are_rejected(self) -> None:
+        mutations = {
+            "assigned_paths": [{}],
+            "inputs": "repo@commit",
+            "expected_outputs": {},
+            "acceptance_criteria": [],
+            "dependencies": ["SR-001", "SR-001"],
+        }
+        for field, value in mutations.items():
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / "run"
+                context = task("SR-001")
+                context[field] = value
+                write_run(root, run_state(["SR-001"]), [context])
+                self.assertTrue(validate_run(root))
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            context = task("SR-001")
+            analysis = task("SR-002", "control_review", ["SR-001"])
+            state = run_state(["SR-001", "SR-002"])
+            state["task_graph"] = {
+                "edges": [["SR-001", "SR-002"], ["SR-001", "SR-002"]],
+                "waves": [["SR-001"], [], ["SR-002"]],
+                "exclusive_resources": [],
+            }
+            write_run(root, state, [context, analysis])
+            errors = validate_run(root)
+            self.assertTrue(any("duplicate task graph edge" in error for error in errors), errors)
+            self.assertTrue(any("must not be empty" in error for error in errors), errors)
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            context = task("SR-001")
+            analysis = task("SR-002", "control_review", ["SR-001"])
+            analysis["safety"]["composition_dependencies"] = []
+            write_run(root, run_state(["SR-001", "SR-002"]), [context, analysis])
+            self.assertTrue(
+                any("must include every execution dependency" in error for error in validate_run(root))
+            )
+
+    def test_preflight_requires_one_context_root_in_first_wave(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            first = task("SR-001")
+            second = task("SR-002")
+            write_run(root, run_state(["SR-001", "SR-002"]), [first, second])
+            errors, _ = preflight(root, strict_v3=True)
+            self.assertTrue(any("exactly one context_map" in error for error in errors), errors)
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            context = task("SR-001")
+            analysis = task("SR-002", "control_review", [])
+            state = run_state(["SR-001", "SR-002"])
+            state["task_graph"] = {
+                "edges": [],
+                "waves": [["SR-002"], ["SR-001"]],
+                "exclusive_resources": [],
+            }
+            write_run(root, state, [context, analysis])
+            errors, _ = preflight(root, strict_v3=True)
+            self.assertTrue(any("first non-blocked task graph wave" in error for error in errors), errors)
+
+    def test_non_operational_dynamic_intent_variants_are_rejected(self) -> None:
+        actions = (
+            "launch the local workload and collect counters",
+            "invoke a simulator fixture",
+            "fuzz one local parser",
+            "send a probe to the target",
+            "运行本地仿真并测量时延",
+            "access the FPGA board",
+        )
+        for action in actions:
+            with self.subTest(action=action), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / "run"
+                context = task("SR-001")
+                context["allowed_actions"] = [action]
+                write_run(root, run_state(["SR-001"]), [context])
+                self.assertTrue(any("describes active work" in error for error in validate_run(root)))
+
+    def test_generic_profile_cannot_hide_fpga_active_work(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            context = task("SR-001")
+            active = task("SR-002", "active_validation", ["SR-001"])
+            action = "access the FPGA board and collect hardware counters"
+            active["allowed_actions"] = [action]
+            active["safety"].update(
+                {
+                    "capability_boundary": "active_authorized",
+                    "active_actions": [action],
+                    "approval_ref": "APR-001",
+                }
+            )
+            state = run_state(["SR-001", "SR-002"])
+            state["authorization_tier"] = "A1"
+            state["active_testing_approved"] = True
+            state["active_testing_approval"] = approval_packet(True, ["SR-002"])
+            write_run(root, state, [context, active])
+            errors = validate_run(root)
+            self.assertTrue(any("microarchitecture active action requires" in error for error in errors), errors)
+            self.assertTrue(any("requires authorization tier A2" in error for error in errors), errors)
+
+    def test_resume_and_dependency_status_must_match(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            context = task("SR-001")
+            running = task("SR-002", "control_review", ["SR-001"])
+            running["status"] = "running"
+            state = run_state(["SR-001", "SR-002"])
+            write_run(root, state, [context, running])
+            errors = validate_run(root)
+            self.assertTrue(any("has dependency SR-001 in status pending" in error for error in errors), errors)
+
+            state_path = root / "run-state.json"
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["resume"]["completed_tasks"] = ["SR-001"]
+            state["resume"]["next_actions"] = 7
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+            errors = validate_run(root)
+            self.assertTrue(any("resume.completed_tasks" in error for error in errors), errors)
+            self.assertTrue(any("resume.next_actions" in error for error in errors), errors)
+
+    def test_cosmetic_policy_fallback_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            context = task("SR-001")
+            blocked = task("SR-002", "state_inventory", ["SR-001"])
+            blocked["status"] = "policy_blocked"
+            fallback = task("SR-003", "control_review", ["SR-001"])
+            fallback["fallback_of"] = "SR-002"
+            fallback["objective"] = blocked["objective"].upper() + " !!!"
+            fallback["research_question"] = blocked["research_question"] + "?"
+            state = run_state(["SR-001", "SR-002", "SR-003"])
+            write_run(root, state, [context, blocked, fallback], [policy_event("SR-002", "SR-003")])
+            errors = validate_run(root)
+            self.assertTrue(any("materially change its objective" in error for error in errors), errors)
+            self.assertTrue(any("materially change its research_question" in error for error in errors), errors)
 
 
 if __name__ == "__main__":

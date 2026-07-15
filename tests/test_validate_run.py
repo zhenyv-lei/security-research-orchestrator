@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from preflight_tasks import preflight  # noqa: E402
-from validate_run import validate_run  # noqa: E402
+from validate_run import canonical_contract_hash, validate_run  # noqa: E402
 
 
 def write_json(path: Path, data: object) -> None:
@@ -64,16 +64,21 @@ def task(
     execution_mode: str = "read-only",
 ) -> dict[str, object]:
     active = task_class == "active_validation"
+    synthesis = task_class == "synthesis"
     return {
         "schema_version": 3,
         "task_id": task_id,
-        "role": "verification" if task_class == "verification" else "analysis",
+        "role": (
+            "synthesis"
+            if synthesis
+            else ("verification" if task_class == "verification" else ("context" if task_class == "context_map" else "analysis"))
+        ),
         "phase": task_class.replace("_", "-"),
         "execution_mode": execution_mode,
         "objective": f"Complete the bounded {task_class} fixture.",
         "research_question": "Does the controlled artifact establish the bounded claim?",
         "dependencies": dependencies,
-        "assigned_paths": [f"tasks/{task_id}"],
+        "assigned_paths": ["final"] if synthesis else [f"tasks/{task_id}"],
         "inputs": ["repo@0123456789abcdef"],
         "target_snapshot": snapshot(),
         "resource_requirements": {
@@ -84,7 +89,7 @@ def task(
         },
         "allowed_actions": ["run one bounded local simulation"] if active else ["read local artifacts"],
         "prohibited_actions": ["external targets"],
-        "expected_outputs": ["report.md", "evidence.jsonl"],
+        "expected_outputs": ["final/final-report.md"] if synthesis else ["report.md", "evidence.jsonl"],
         "acceptance_criteria": ["one cited claim"],
         "evidence_requirements": ["stable locator"],
         "stop_conditions": ["scope change"],
@@ -105,6 +110,34 @@ def task(
         "attempts": 1,
         "max_attempts": 2,
     }
+
+
+def completed_report() -> str:
+    return """# Security Research Report
+
+## Executive Summary
+The bounded simulator fixture produced one independently checked result.
+
+## Scope and Authorization
+Only the pinned local simulator fixture and declared action were authorized.
+
+## Design Snapshot and Reproducibility
+The commit, configuration, toolchain, workload, seed, and repetition are recorded.
+
+## Experiment Matrix and Artifact Coverage
+CELL-001 has one hash-verified simulation artifact.
+
+## Method and Coverage
+The run compared the approved control and recorded cycle count.
+
+## Conflicts, Blocks, and Limitations
+No conflict was observed; the result is limited to the synthetic fixture.
+
+## Claim-to-Evidence Matrix
+| Claim ID | Verdict | Evidence IDs | Scope | Limitations |
+|---|---|---|---|---|
+| F-SR-002-01 | verified | EV-SR-002-01, EV-SR-003-01 | local fixture | synthetic only |
+"""
 
 
 class MicroarchitectureValidatorTests(unittest.TestCase):
@@ -136,10 +169,10 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             "allowed_actions": ["read local RTL", "run one bounded local simulation"],
             "prohibited_actions": ["external interaction"],
             "completion_criteria": ["independent verification"],
-            "task_ids": ["SR-001", "SR-002", "SR-003"],
+            "task_ids": ["SR-001", "SR-002", "SR-003", "SR-004"],
             "task_graph": {
-                "edges": [["SR-001", "SR-002"], ["SR-002", "SR-003"]],
-                "waves": [["SR-001"], ["SR-002"], ["SR-003"]],
+                "edges": [["SR-001", "SR-002"], ["SR-002", "SR-003"], ["SR-003", "SR-004"]],
+                "waves": [["SR-001"], ["SR-002"], ["SR-003"], ["SR-004"]],
                 "exclusive_resources": ["sim-slot"],
             },
             "artifact_roots": {
@@ -149,7 +182,7 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             },
             "resume": {
                 "checkpoint_id": "CP-3",
-                "completed_tasks": ["SR-001", "SR-002", "SR-003"],
+                "completed_tasks": ["SR-001", "SR-002", "SR-003", "SR-004"],
                 "retryable_tasks": [],
                 "blocked_tasks": [],
                 "next_actions": [],
@@ -171,9 +204,11 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
         context = task("SR-001", "context_map", [])
         active = task("SR-002", "active_validation", ["SR-001"], execution_mode="local-simulation")
         verifier = task("SR-003", "verification", ["SR-002"])
+        synthesis = task("SR-004", "synthesis", ["SR-003"])
         write_json(root / "tasks/SR-001/task.json", context)
         write_json(root / "tasks/SR-002/task.json", active)
         write_json(root / "tasks/SR-003/task.json", verifier)
+        write_json(root / "tasks/SR-004/task.json", synthesis)
 
         evidence_records = {
             "SR-001": {
@@ -216,12 +251,23 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
                 "finding_id": "F-SR-002-01",
                 "task_id": "SR-002",
                 "title": "Bounded fixture finding",
+                "affected_scope": ["local simulator fixture"],
+                "preconditions": ["pinned fixture snapshot"],
                 "observation": "The bounded local control completed.",
                 "interpretation": "The result supports only the fixture claim.",
                 "impact": "Test fixture only.",
                 "evidence_ids": ["EV-SR-002-01", "EV-SR-003-01"],
+                "counter_evidence": ["The negative control did not show the observation."],
+                "false_positive_hypotheses": ["A tool-only artifact could mimic the cycle count."],
+                "severity": "informational",
+                "severity_rationale": "The result applies only to a synthetic fixture.",
+                "confidence": "high",
+                "confidence_rationale": "The raw artifact and independent verifier agree.",
                 "verification_status": "verified",
                 "verifier_task_id": "SR-003",
+                "remediation": ["Retain the bounded validation contract."],
+                "regression_checks": ["Re-run CELL-001 with the pinned snapshot."],
+                "limitations": ["No production target was evaluated."],
             }
         )
         write_json(root / "tasks/SR-002/finding-001.json", finding)
@@ -244,6 +290,13 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
                 "controls": ["negative control"],
                 "observables": ["cycle count"],
                 "seed_policy": {"mode": "fixed-list", "seeds": [1], "repetitions": 1},
+                "cells": [
+                    {
+                        "cell_id": "CELL-001",
+                        "label": "bounded control configuration",
+                        "variable_assignments": {"configuration": "control"},
+                    }
+                ],
                 "command_plan": ["run the approved local simulator"],
                 "expected_artifacts": ["ART-EXP-001-001"],
                 "acceptance_criteria": ["control reproduced"],
@@ -271,11 +324,16 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
                 "artifact_id": "ART-EXP-001-001",
                 "producer_task_id": "SR-002",
                 "experiment_id": "EXP-001",
+                "experiment_revision": 1,
+                "experiment_contract_hash": canonical_contract_hash(experiment),
+                "cell_id": "CELL-001",
                 "path": "experiments/EXP-001/results/run-001.log",
                 "hash": "sha256:" + hashlib.sha256(artifact_path.read_bytes()).hexdigest(),
                 "target_snapshot": snapshot(),
                 "tool_versions": ["verilator:test"],
                 "workload_ids": ["WL-001"],
+                "seed": 1,
+                "repetition_index": 0,
                 "generated_at": "2026-07-15T00:00:00Z",
             }
         )
@@ -298,7 +356,7 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
         final_dir = root / "final"
         final_dir.mkdir()
         (final_dir / "final-report.md").write_text(
-            (ROOT / "assets/templates/final-report.md").read_text(encoding="utf-8"),
+            completed_report(),
             encoding="utf-8",
         )
 
@@ -340,6 +398,7 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             state["task_ids"] = ["SR-001"]
             state["task_graph"] = {"edges": [], "waves": [["SR-001"]], "exclusive_resources": []}
             state["resume"]["completed_tasks"] = ["SR-001"]
+            state["status"] = "running"
             static_snapshot = snapshot()
             static_snapshot["target_class"] = "static-rtl"
             static_snapshot["workloads"] = []
@@ -419,7 +478,7 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             write_json(path, context)
             self.assertTrue(any("must use active_validation" in error for error in self.errors_for(root)))
 
-    def test_non_operational_active_word_requires_preflight_review(self) -> None:
+    def test_non_operational_active_word_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self.make_valid_run(root)
@@ -428,8 +487,8 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             context["allowed_actions"] = ["run one local simulation"]
             write_json(path, context)
             errors, warnings = preflight(root, strict_v3=True)
-            self.assertTrue(any("may describe active work" in warning for warning in warnings))
-            self.assertTrue(any("unapproved preflight warning" in error for error in errors))
+            self.assertEqual([], warnings)
+            self.assertTrue(any("describes active work" in error for error in errors), errors)
 
     def test_execution_mode_must_match_target_class(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -532,7 +591,7 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             experiment = json.loads(path.read_text(encoding="utf-8"))
             experiment["seed_policy"]["seeds"] = []
             write_json(path, experiment)
-            self.assertTrue(any("requires at least one seed" in error for error in self.errors_for(root)))
+            self.assertTrue(any("requires at least one unique integer seed" in error for error in self.errors_for(root)))
 
     def test_completed_run_requires_exact_evidence_index(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -582,7 +641,7 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             state["resume"]["completed_tasks"] = ["SR-001"]
             write_json(state_path, state)
 
-            for task_id in ("SR-002", "SR-003"):
+            for task_id in ("SR-002", "SR-003", "SR-004"):
                 task_path = root / "tasks" / task_id / "task.json"
                 task_data = json.loads(task_path.read_text(encoding="utf-8"))
                 task_data["status"] = "pending"
@@ -598,6 +657,134 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             (root / "artifacts/manifest.jsonl").unlink()
             (root / "experiments/EXP-001/results/run-001.log").unlink()
             self.assertEqual([], self.errors_for(root))
+
+    def test_microarchitecture_json_contracts_fail_closed_on_arrays(self) -> None:
+        for contract in ("experiment", "artifact", "evidence-index"):
+            with self.subTest(contract=contract), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.make_valid_run(root)
+                if contract == "experiment":
+                    (root / "experiments/EXP-001/experiment.json").write_text("[]", encoding="utf-8")
+                elif contract == "artifact":
+                    (root / "artifacts/manifest.jsonl").write_text("[]\n", encoding="utf-8")
+                else:
+                    (root / "evidence-index.json").write_text("[]", encoding="utf-8")
+                errors = self.errors_for(root)
+                self.assertTrue(any("expected object" in error for error in errors), errors)
+
+    def test_active_validation_requires_an_experiment_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            shutil.rmtree(root / "experiments")
+            shutil.rmtree(root / "artifacts")
+            errors, _ = preflight(root, strict_v3=True)
+            self.assertTrue(any("requires at least one experiment contract" in error for error in errors), errors)
+
+    def test_experiment_resources_must_fit_task_and_graph_reservations(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            path = root / "experiments/EXP-001/experiment.json"
+            experiment = json.loads(path.read_text(encoding="utf-8"))
+            experiment["resource_budget"]["cpu"] = 999
+            experiment["resource_budget"]["exclusive_resources"] = ["untracked-board"]
+            write_json(path, experiment)
+            errors = self.errors_for(root)
+            self.assertTrue(any("exclusive resources are not declared" in error for error in errors), errors)
+            self.assertTrue(any("cpu exceeds" in error for error in errors), errors)
+
+    def test_artifact_must_bind_revision_contract_cell_seed_and_enums(self) -> None:
+        mutations = {
+            "experiment_revision": 2,
+            "experiment_contract_hash": "sha256:" + "0" * 64,
+            "cell_id": "CELL-UNKNOWN",
+            "seed": None,
+            "repetition_index": -1,
+            "kind": [],
+            "sensitivity": "secret-ish",
+            "retention": 7,
+            "generated_at": "yesterday",
+        }
+        for field, value in mutations.items():
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.make_valid_run(root)
+                manifest = root / "artifacts/manifest.jsonl"
+                artifact = json.loads(manifest.read_text(encoding="utf-8"))
+                artifact[field] = value
+                manifest.write_text(json.dumps(artifact) + "\n", encoding="utf-8")
+                self.assertTrue(self.errors_for(root))
+
+    def test_experiment_contract_drift_invalidates_existing_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            path = root / "experiments/EXP-001/experiment.json"
+            experiment = json.loads(path.read_text(encoding="utf-8"))
+            experiment["command_plan"] = ["run a changed approved command"]
+            write_json(path, experiment)
+            self.assertTrue(any("experiment_contract_hash differs" in error for error in self.errors_for(root)))
+
+    def test_active_validation_evidence_always_requires_artifact_id(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            evidence_path = root / "tasks/SR-002/evidence.jsonl"
+            evidence_record = json.loads(evidence_path.read_text(encoding="utf-8"))
+            evidence_record["kind"] = "analysis"
+            evidence_record.pop("artifact_id")
+            evidence_path.write_text(json.dumps(evidence_record) + "\n", encoding="utf-8")
+            self.assertTrue(any("requires artifact_id" in error for error in self.errors_for(root)))
+
+    def test_planned_experiment_rejects_stale_realized_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            path = root / "experiments/EXP-001/experiment.json"
+            experiment = json.loads(path.read_text(encoding="utf-8"))
+            experiment["status"] = "planned"
+            write_json(path, experiment)
+            errors = self.errors_for(root)
+            self.assertTrue(any("completed task owns a non-terminal experiment" in error for error in errors), errors)
+            self.assertTrue(any("planned experiment must not have realized artifacts" in error for error in errors), errors)
+
+    def test_cells_exactly_cover_seed_repetition_workload_matrix(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            path = root / "experiments/EXP-001/experiment.json"
+            experiment = json.loads(path.read_text(encoding="utf-8"))
+            experiment["seed_policy"] = {"mode": "fixed-list", "seeds": [1, 2], "repetitions": 2}
+            write_json(path, experiment)
+            self.assertTrue(any("uncovered cell/workload/seed/repetition" in error for error in self.errors_for(root)))
+
+    def test_verified_finding_requires_substantive_contract_fields(self) -> None:
+        fields = ("title", "observation", "interpretation", "impact", "severity_rationale", "confidence_rationale")
+        for field in fields:
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.make_valid_run(root)
+                path = root / "tasks/SR-002/finding-001.json"
+                finding_record = json.loads(path.read_text(encoding="utf-8"))
+                finding_record[field] = ""
+                write_json(path, finding_record)
+                self.assertTrue(any(field in error for error in self.errors_for(root)))
+
+    def test_evidence_enums_and_verifier_support_link_are_enforced(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            evidence_path = root / "tasks/SR-003/evidence.jsonl"
+            evidence_record = json.loads(evidence_path.read_text(encoding="utf-8"))
+            evidence_record["kind"] = []
+            evidence_record["sensitivity"] = "unknown"
+            evidence_record["supports"] = ["OTHER-FINDING"]
+            evidence_path.write_text(json.dumps(evidence_record) + "\n", encoding="utf-8")
+            errors = self.errors_for(root)
+            self.assertTrue(any("invalid evidence kind" in error for error in errors), errors)
+            self.assertTrue(any("invalid evidence sensitivity" in error for error in errors), errors)
+            self.assertTrue(any("requires an independent verifier" in error for error in errors), errors)
 
 
 if __name__ == "__main__":

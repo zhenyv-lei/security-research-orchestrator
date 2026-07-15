@@ -21,6 +21,8 @@ Give the verifier the claim, scope, source artifacts, and evidence records. With
 
 For `verified` or `corroborated`, require a distinct completed `verification` task that depends on the finding's origin and contributes evidence cited by the finding. A resolved conflict likewise requires verifier-owned evidence and completed verifier artifacts; metadata naming a verifier is not sufficient.
 
+Verifier evidence must explicitly list the finding ID in `supports`. Accepted findings keep observation, interpretation, impact, counter-evidence, false-positive hypotheses, severity/confidence rationales, regression checks, and limitations as substantive separate fields.
+
 Cluster findings for verification only when they share the same root cause and evidence. Do not let clustering hide per-instance reachability differences.
 
 ## Conflict Resolution
@@ -53,6 +55,8 @@ Require the synthesizer to:
 - include rejected findings when they prevent repeated false alarms;
 - state incomplete coverage and policy or authorization blocks;
 - avoid adding uncited technical details.
+
+A completed v3 run has exactly one completed `synthesis` task that owns `final/final-report.md`, an exact `evidence-index.json`, a non-empty final checkpoint, substantive required report sections, and at least one row in the canonical claim-to-evidence table. The microarchitecture profile additionally requires populated design-snapshot and experiment/artifact sections.
 
 ## Acceptance Metrics
 

@@ -68,6 +68,8 @@ Record approval in `run-state.json` using this structure; a boolean alone is not
 
 When approved, require canonical authorization tier `A1` or `A2` and non-empty values for every packet field. Keep `approved` equal to `active_testing_approved`. List every approved active task in `approved_task_ids`; each task must use the same `approval_id` in its safety block.
 
+Do not place dynamic intent in a `non_operational` objective, research question, or allowed-action string while leaving `active_actions` empty. The validator recognizes common English and Chinese execution, simulation, probing, mutation, collection, and measurement verbs, but deterministic matching is only a lower bound; the manager still reviews semantic intent.
+
 For simulator, formal, FPGA, or silicon work, also bind every experiment to that task with the same `approval_id`. Local simulation or formal execution requires at least A1. FPGA or silicon execution requires A2 with the exact board/device, image/configuration, owner, time window, side effects, rollback, and stop conditions. Access to a simulator or hardware board does not by itself establish approval. An A0 microarchitecture run remains limited to supplied artifacts and read-only source/configuration analysis.
 
 ## Safety-Blocked Tasks

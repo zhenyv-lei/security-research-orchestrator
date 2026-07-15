@@ -4,6 +4,8 @@ Select the smallest profile that satisfies the research goal. Add tasks only whe
 
 ## Source-Code Security Audit
 
+Set `research_profile` to `source-code-security-audit`.
+
 1. `context_map`: map architecture, trust boundaries, entry points, critical assets, and build/test paths.
 2. `passive_research`: identify security-relevant changes when version history is available.
 3. `state_inventory`: partition review by one independent component or vulnerability class per task.
@@ -17,6 +19,8 @@ Do not parallelize before `context_map` identifies stable component boundaries.
 
 ## CVE and Supply-Chain Investigation
 
+Set `research_profile` to `cve-supply-chain-investigation`.
+
 1. `state_inventory`: record product, package, version, platform, configuration, and dependency path.
 2. `passive_research`: collect primary vendor advisories and authoritative vulnerability records.
 3. `passive_research`: compare affected and fixed version constraints.
@@ -27,6 +31,8 @@ Do not parallelize before `context_map` identifies stable component boundaries.
 8. `synthesis`: distinguish theoretical exposure from verified applicability.
 
 ## Threat Modeling and Architecture Review
+
+Set `research_profile` to `threat-modeling-architecture-review`.
 
 1. `context_map`: document assets, actors, data flows, trust boundaries, and dependencies.
 2. `passive_research`: enumerate security assumptions and missing architecture evidence.
@@ -56,6 +62,8 @@ For RTL, simulator, FPGA, silicon, timing, or quantitative work, also load `micr
 Do not assign a worker a combined request such as "map the resource, derive a collision, build a probe, and rank exploitability." Those are different task classes and may not all be authorized or necessary.
 
 ## Routing Rules
+
+Schema v3 accepts only the four profile identifiers above. Do not invent aliases or use a generic/empty value; select the closest bounded profile and record out-of-profile questions as limitations.
 
 - Use one worker when the question requires full-system context or shared mutable state.
 - Use parallel workers for independent components, advisory sources, or trust boundaries.

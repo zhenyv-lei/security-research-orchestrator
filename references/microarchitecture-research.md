@@ -60,7 +60,7 @@ For each experiment, record:
 - observables such as commits, exceptions, counters, traces, waveforms, latency distributions, or difftest events;
 - pass, fail, inconclusive, stop, and resource-exhaustion criteria.
 
-Use `assets/templates/experiment.json` for each cell rather than broad prompts. Parallelize cells only when they do not share an exclusive simulator build, mutable checkpoint, FPGA image, hardware target, or output path. Keep each cell within one approved method class.
+Use `assets/templates/experiment.json` to declare the matrix. Give every independent-variable assignment a unique `CELL-*` record, then realize the cell x workload x seed x repetition cross-product. Parallelize cells only when they do not share an exclusive simulator build, mutable checkpoint, FPGA image, hardware target, or output path. Keep each cell within one approved method class, and keep every experiment budget within the owning task's reservation and graph resources.
 
 ### 4. Build and Calibration Gate
 
@@ -76,9 +76,9 @@ Do not interpret security results from an uncalibrated build or a failing refere
 
 ### 5. Evidence Collection
 
-Prefer the smallest artifact that establishes the claim while retaining raw data needed for independent review. Write artifacts under `experiments/<experiment-id>/results/`. Register each one in `artifacts/manifest.jsonl` with its producer, experiment, target snapshot, tool version, path, SHA-256 hash, sensitivity, and retention decision.
+Prefer the smallest artifact that establishes the claim while retaining raw data needed for independent review. Write artifacts under `experiments/<experiment-id>/results/`. Register each one in `artifacts/manifest.jsonl` with its producer, experiment revision and canonical contract hash, cell, seed, repetition, target snapshot, tool version, path, SHA-256 hash, sensitivity, and retention decision.
 
-Typical evidence kinds include `rtl`, `config`, `build_log`, `simulation_log`, `difftest`, `assertion`, `counter`, `trace`, `waveform`, `checkpoint`, `analysis`, and `paper`.
+Typical evidence kinds include `source_code`, `configuration`, `build_log`, `simulation_log`, `formal_log`, `difftest`, `counter`, `trace`, `waveform`, `checkpoint`, `analysis`, `report`, and `standard`.
 
 ### 6. Independent Verification
 

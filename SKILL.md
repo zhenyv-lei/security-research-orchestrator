@@ -56,6 +56,8 @@ Before scanning, dynamic probing, proof-of-concept execution, credential use, or
 
 For `microarchitecture-security`, set `research_profile`, complete `scope.target_snapshot`, and preserve the general authorization packet in addition to the v3 active-testing packet. Static RTL inspection may remain `non_operational`; simulation, formal execution, FPGA, silicon, probing, or measurement is active work and requires approval.
 
+Use integer schema `3` for every dispatchable run and task. Set exactly one supported profile: `source-code-security-audit`, `cve-supply-chain-investigation`, `threat-modeling-architecture-review`, or `microarchitecture-security`. Unknown versions and profiles fail closed. Every v3 run carries the common authorization packet, task graph, artifact roots, and resume state; profile selection never disables those gates.
+
 Output: a completed `run-state.json` with scope, authorization tier, constraints, approval status, and any required target snapshot.
 
 ## Phase 1: Build the Research Task Graph
@@ -74,7 +76,7 @@ For every task:
 6. Add stop and escalation conditions.
 7. Complete the structured `safety` block: defensive purpose, task class, capability boundary, resource scope, evidence goal, active actions, composition dependencies, and safe fallback.
 
-For a microarchitecture profile, also complete `phase`, `execution_mode`, `target_snapshot`, and `resource_requirements`. Make the task snapshot match the run snapshot. If a task will execute or measure a target, classify it as `active_validation`, bind it to the approval packet, and create `experiments/<experiment-id>/experiment.json` with one falsifiable hypothesis, controls, variables, seed/repetition policy, observables, stop criteria, and resource budget.
+For a microarchitecture profile, also complete `phase`, `execution_mode`, `target_snapshot`, and `resource_requirements`. Make the task snapshot match the run snapshot. If a task will execute or measure a target, classify it as `active_validation`, bind it to the approval packet, and create at least one `experiments/<experiment-id>/experiment.json` with one falsifiable hypothesis, controls, variables, explicit variable-assignment cells, workloads, seeds/repetitions, observables, stop criteria, and a resource budget bounded by the task reservation.
 
 Apply the bounded-task test before dispatch:
 
@@ -121,7 +123,7 @@ Require each worker to:
 
 Do not let workers hand off tasks directly. Route all new work proposals through the manager so authorization, dependencies, and composition risk remain centralized.
 
-Write each generated experiment artifact under its owning `experiments/<experiment-id>/results/` directory and register it in `artifacts/manifest.jsonl`. Do not place generated output beside design inputs or shared workloads.
+Write each generated experiment artifact under its owning `experiments/<experiment-id>/results/` directory and register it in `artifacts/manifest.jsonl`. Bind the record to the experiment revision, canonical contract hash, cell ID, seed, and repetition index. Do not place generated output beside design inputs or shared workloads.
 
 Output: task reports, `evidence.jsonl`, candidate `finding-*.json` files, experiment results and manifest records when approved, and updated task status.
 
@@ -151,7 +153,7 @@ Output: normalized findings, verification verdicts, conflict records, and eviden
 
 ## Phase 4: Assign a Fresh Synthesis Agent
 
-Wait for all runnable discovery and verification tasks to reach a terminal state. Start a fresh synthesis agent and provide only:
+Wait for all runnable discovery and verification tasks to reach a terminal state. Start one fresh synthesis agent and provide only:
 
 - the approved scope and completion criteria;
 - normalized findings and verdicts;
@@ -164,7 +166,7 @@ Do not provide hidden expected conclusions or ask the synthesizer to fill gaps. 
 
 Run a final composition-risk review before accepting the synthesis. Remove secrets and unnecessary operational detail while preserving defensive value.
 
-Output: `final/final-report.md` and a claim-to-evidence coverage table.
+Output: a substantive `final/final-report.md` and claim-to-evidence coverage table. A completed v3 run also requires an exact `evidence-index.json`, one completed `synthesis` task that owns the final report, and a non-empty resume checkpoint.
 
 ## Phase 5: Manager Acceptance
 
@@ -216,6 +218,8 @@ Do not:
 - include credentials, secrets, personal data, persistence, stealth, or destructive actions in outputs;
 - let the synthesis agent invent missing evidence or hide incomplete coverage;
 - claim completion because workers reported success without checking artifacts.
+- use an unknown profile or cosmetic fallback wording to bypass a stricter contract;
+- place dynamic intent only in objectives, research questions, or translated action text while declaring the task non-operational;
 - compare results from different commits, RTL configurations, toolchains, workloads, or seeds as one controlled experiment;
 - infer leakage or exploitability from timing or counter variance without controls, repetitions, and an explicit observation model.
 

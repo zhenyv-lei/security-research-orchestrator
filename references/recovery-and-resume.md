@@ -31,9 +31,11 @@ Persist state after every task transition and before any retry. Treat `run-state
 9. Continue independent safe tasks.
 10. Record the resume timestamp and reason.
 
+For every v3 profile, keep `resume.completed_tasks`, `retryable_tasks`, and `blocked_tasks` as exact, duplicate-free projections of task status; keep `next_actions` as non-empty strings. A completed run requires a non-empty checkpoint ID. Do not treat resume validation as a microarchitecture-only feature.
+
 ## Safe Fallback Rules
 
-A fallback must change the objective to a materially safer defensive question. Record `fallback_of` and preserve the original blocked task. Examples include detection, mitigation, patch validation in a toy fixture, or non-operational explanation.
+A fallback must change the objective and research question to a materially safer defensive question. Record `fallback_of` and preserve the original blocked task. Normalized punctuation/case-only renames fail validation; semantic similarity still requires manager review. A fallback for blocked active work must be `non_operational`. Examples include detection, mitigation, patch validation in a toy fixture, or non-operational explanation.
 
 For every policy refusal:
 

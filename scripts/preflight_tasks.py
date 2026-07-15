@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -14,10 +13,6 @@ from validate_run import validate_run
 
 
 SINGLE_RESOURCE_CLASSES = {"state_inventory", "boundary_trace"}
-ACTIVE_ACTION_PATTERN = re.compile(
-    r"\b(run|execute|simulate|probe|scan|measure|instrument|mutate|flash|program|access)\b",
-    re.IGNORECASE,
-)
 
 
 def load_json(path: Path) -> dict:
@@ -101,7 +96,7 @@ def preflight(run_dir: Path, strict_v2: bool = False, strict_v3: bool = False) -
 
     state = load_json(run_dir / "run-state.json")
     schema_version = state.get("schema_version", 1)
-    if schema_version < 3:
+    if schema_version != 3:
         errors.append("dispatch requires schema v3; migrate legacy run artifacts before worker dispatch")
         return errors, warnings
 
@@ -117,8 +112,27 @@ def preflight(run_dir: Path, strict_v2: bool = False, strict_v3: bool = False) -
     context_ids = {
         task_id for task_id, task in tasks.items() if task.get("safety", {}).get("task_class") == "context_map"
     }
-    if not context_ids:
-        errors.append("task graph has no context_map task")
+    if len(context_ids) != 1:
+        errors.append("task graph must have exactly one context_map task")
+    else:
+        context_id = next(iter(context_ids))
+        if tasks[context_id].get("dependencies"):
+            errors.append("context_map task must not have dependencies")
+        graph = state.get("task_graph", {})
+        waves = graph.get("waves", []) if isinstance(graph, dict) else []
+        eligible_waves = [
+            [
+                task_id
+                for task_id in wave
+                if isinstance(task_id, str)
+                and tasks.get(task_id, {}).get("status") not in {"policy_blocked", "cancelled"}
+            ]
+            for wave in waves
+            if isinstance(wave, list)
+        ]
+        first_dispatch_wave = next((wave for wave in eligible_waves if wave), None)
+        if first_dispatch_wave != [context_id]:
+            errors.append("the first non-blocked task graph wave must contain only the context_map task")
 
     owners: list[tuple[str, str]] = []
     for task_id, task in tasks.items():
@@ -141,13 +155,12 @@ def preflight(run_dir: Path, strict_v2: bool = False, strict_v3: bool = False) -
             errors.append(f"{task_id} has no stable input artifacts")
         if not task["expected_outputs"]:
             errors.append(f"{task_id} has no expected outputs")
-        if safety.get("capability_boundary") == "non_operational":
-            for action in task.get("allowed_actions", []):
-                if isinstance(action, str) and ACTIVE_ACTION_PATTERN.search(action):
-                    warnings.append(
-                        f"{task_id} non_operational allowed_action may describe active work: {action}"
-                    )
-        if task_id not in context_ids and context_ids and not has_dependency_path(task_id, context_ids, tasks):
+        if (
+            task.get("status") not in {"policy_blocked", "cancelled"}
+            and task_id not in context_ids
+            and context_ids
+            and not has_dependency_path(task_id, context_ids, tasks)
+        ):
             warnings.append(f"{task_id} has no dependency path to a context_map task")
 
         fallback_of = task.get("fallback_of")
