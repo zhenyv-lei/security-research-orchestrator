@@ -216,6 +216,15 @@ EXECUTION_TARGET_CLASSES = {
 TASK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 EXPERIMENT_ID_PATTERN = re.compile(r"EXP-[A-Za-z0-9][A-Za-z0-9._-]{0,123}\Z")
 TEXT_OUTPUT_SUFFIXES = {".json", ".jsonl", ".md", ".txt", ".yaml", ".yml"}
+GENERATED_EVIDENCE_KINDS = {
+    "build_log",
+    "simulation_log",
+    "difftest",
+    "counter",
+    "trace",
+    "waveform",
+    "checkpoint",
+}
 MICROARCH_PROFILE = "microarchitecture-security"
 SNAPSHOT_IDENTITY_FIELDS = (
     "repository",
@@ -327,6 +336,17 @@ def validate_microarchitecture_state(
     }
     if not isinstance(authorization, dict) or not authorization_fields.issubset(authorization):
         errors.append(f"authorization packet is incomplete in {state_path}")
+    elif state.get("active_testing_approved") is True:
+        active_approval = state.get("active_testing_approval", {})
+        if not isinstance(active_approval, dict):
+            active_approval = {}
+        if authorization.get("owner") != active_approval.get("owner"):
+            errors.append(f"authorization owner differs from active approval in {state_path}")
+        if authorization.get("time_window") != active_approval.get("time_window"):
+            errors.append(f"authorization time window differs from active approval in {state_path}")
+        method_classes = authorization.get("method_classes")
+        if not isinstance(method_classes, list) or active_approval.get("method_class") not in method_classes:
+            errors.append(f"authorization method class differs from active approval in {state_path}")
 
     artifact_roots = state.get("artifact_roots")
     expected_roots = {"tasks": "tasks", "experiments": "experiments", "artifacts": "artifacts"}
@@ -1104,6 +1124,12 @@ def validate_run(run_dir: Path) -> list[str]:
                 ):
                     errors.append(f"evidence supports must be a non-empty list of strings at {evidence_path}:{line_no}")
                 artifact_id = record.get("artifact_id")
+                if (
+                    microarchitecture_profile
+                    and record.get("kind") in GENERATED_EVIDENCE_KINDS
+                    and (not isinstance(artifact_id, str) or not artifact_id.strip())
+                ):
+                    errors.append(f"generated microarchitecture evidence requires artifact_id at {evidence_path}:{line_no}")
                 if artifact_id is not None:
                     if not isinstance(artifact_id, str) or not artifact_id.strip():
                         errors.append(f"evidence artifact_id must be a non-empty string at {evidence_path}:{line_no}")

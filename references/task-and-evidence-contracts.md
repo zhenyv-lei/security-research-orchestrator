@@ -65,7 +65,7 @@ Construct worker prompts in this order:
 
 Do not include other workers' conclusions or manager preferences.
 
-Schema v3 binds active work to the run approval packet: `active_validation` requires `active_authorized`, non-empty `active_actions`, a matching `approval_ref`, and membership in `active_testing_approval.approved_task_ids`. Versions 1 and 2 remain readable for archival validation. Migrate a legacy run to v3 and pass `preflight_tasks.py --strict-v3` before dispatching or resuming runnable work.
+Schema v3 binds active work to the run approval packet: `active_validation` requires `active_authorized`, non-empty `active_actions`, a matching `approval_ref`, and membership in `active_testing_approval.approved_task_ids`. Integer versions 1 and 2 remain readable for archival validation; the former microarchitecture draft string `"1.1"` is not dispatchable. Migrate legacy contracts to integer v3 and pass `preflight_tasks.py --strict-v3` before dispatching or resuming runnable work.
 
 ## Microarchitecture Experiment Contract
 

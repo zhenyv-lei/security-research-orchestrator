@@ -399,6 +399,16 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             write_json(path, experiment)
             self.assertTrue(any("approved active_validation" in error for error in self.errors_for(root)))
 
+    def test_general_authorization_must_match_active_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            state_path = root / "run-state.json"
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["authorization"]["owner"] = "different owner"
+            write_json(state_path, state)
+            self.assertTrue(any("owner differs" in error for error in self.errors_for(root)))
+
     def test_executable_task_requires_active_validation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -480,6 +490,16 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             self.make_valid_run(root)
             (root / "experiments/EXP-001/results/run-001.log").write_text("changed\n", encoding="utf-8")
             self.assertTrue(any("hash mismatch" in error for error in self.errors_for(root)))
+
+    def test_generated_evidence_requires_registered_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            evidence_path = root / "tasks/SR-002/evidence.jsonl"
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            evidence.pop("artifact_id")
+            evidence_path.write_text(json.dumps(evidence) + "\n", encoding="utf-8")
+            self.assertTrue(any("requires artifact_id" in error for error in self.errors_for(root)))
 
     def test_artifact_cannot_escape_experiment_ownership(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -573,10 +593,7 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             experiment["status"] = "planned"
             write_json(experiment_path, experiment)
 
-            active_evidence_path = root / "tasks/SR-002/evidence.jsonl"
-            active_evidence = json.loads(active_evidence_path.read_text(encoding="utf-8"))
-            active_evidence.pop("artifact_id")
-            active_evidence_path.write_text(json.dumps(active_evidence) + "\n", encoding="utf-8")
+            (root / "tasks/SR-002/evidence.jsonl").unlink()
             (root / "tasks/SR-002/finding-001.json").unlink()
             (root / "artifacts/manifest.jsonl").unlink()
             (root / "experiments/EXP-001/results/run-001.log").unlink()
