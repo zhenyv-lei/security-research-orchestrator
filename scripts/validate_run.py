@@ -1164,8 +1164,9 @@ def validate_run(run_dir: Path) -> list[str]:
                     )
                 )
 
-    if microarchitecture_profile:
+    if microarchitecture_profile or "task_graph" in state:
         validate_task_graph(state, task_records, state_path, errors)
+    if microarchitecture_profile:
         resume = state.get("resume", {})
         expected_resume_statuses = {
             "completed_tasks": {"completed"},

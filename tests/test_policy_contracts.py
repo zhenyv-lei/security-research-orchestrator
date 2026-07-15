@@ -174,6 +174,19 @@ class OrchestratorRegressionTests(unittest.TestCase):
             self.assertEqual(validate_run(root), [])
             self.assertEqual(preflight(root, strict_v2=True), ([], []))
 
+    def test_declared_generic_task_graph_must_match_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            context = task("SR-001")
+            state = run_state(["SR-001"])
+            state["task_graph"] = {
+                "edges": [["SR-001", "SR-001"]],
+                "waves": [["SR-001"]],
+                "exclusive_resources": [],
+            }
+            write_run(root, state, [context])
+            self.assertTrue(any("exactly match task dependencies" in error for error in validate_run(root)))
+
     def test_valid_completed_run_has_outputs_and_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "run"
