@@ -80,7 +80,11 @@ def run_state(task_ids: list[str], schema_version: int = 3) -> dict:
         "schema_version": schema_version,
         "run_id": "SR-FIXTURE",
         "objective": "Validate orchestration contracts.",
-        "scope": {"assets": ["local fixture"]},
+        "scope": {
+            "assets": ["local fixture"],
+            "versions": ["fixture-v1"],
+            "environments": ["local temporary directory"],
+        },
         "authorization_tier": "A0",
         "authorization": {
             "owner": "fixture owner",
@@ -250,6 +254,27 @@ No conflicts were observed; conclusions apply only to the fixture.
 """
 
 
+def write_completed_generic_run(root: Path) -> None:
+    context = task("SR-001")
+    context["status"] = "completed"
+    synthesis = task("SR-002", "synthesis", ["SR-001"])
+    synthesis["status"] = "completed"
+    state = run_state(["SR-001", "SR-002"])
+    state["status"] = "completed"
+    write_run(root, state, [context, synthesis])
+    task_dir = root / "tasks" / "SR-001"
+    (task_dir / "report.md").write_text("# Completed report\n", encoding="utf-8")
+    (task_dir / "evidence.jsonl").write_text(
+        json.dumps(evidence("SR-001", "EV-SR-001-01")) + "\n", encoding="utf-8"
+    )
+    (root / "evidence-index.json").write_text(
+        json.dumps({"schema_version": 3, "records": [{"evidence_id": "EV-SR-001-01"}]}),
+        encoding="utf-8",
+    )
+    (root / "final").mkdir()
+    (root / "final" / "final-report.md").write_text(completed_report(), encoding="utf-8")
+
+
 class OrchestratorRegressionTests(unittest.TestCase):
     def test_valid_v3_passes_validation_and_preflight(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -275,24 +300,7 @@ class OrchestratorRegressionTests(unittest.TestCase):
     def test_valid_completed_run_has_outputs_and_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "run"
-            context = task("SR-001")
-            context["status"] = "completed"
-            synthesis = task("SR-002", "synthesis", ["SR-001"])
-            synthesis["status"] = "completed"
-            state = run_state(["SR-001", "SR-002"])
-            state["status"] = "completed"
-            write_run(root, state, [context, synthesis])
-            task_dir = root / "tasks" / "SR-001"
-            (task_dir / "report.md").write_text("# Completed report\n", encoding="utf-8")
-            (task_dir / "evidence.jsonl").write_text(
-                json.dumps(evidence("SR-001", "EV-SR-001-01")) + "\n", encoding="utf-8"
-            )
-            (root / "evidence-index.json").write_text(
-                json.dumps({"schema_version": 3, "records": [{"evidence_id": "EV-SR-001-01"}]}),
-                encoding="utf-8",
-            )
-            (root / "final").mkdir()
-            (root / "final" / "final-report.md").write_text(completed_report(), encoding="utf-8")
+            write_completed_generic_run(root)
             self.assertEqual(validate_run(root), [])
 
     def test_boolean_only_v2_remains_compatible(self) -> None:
@@ -634,28 +642,30 @@ class OrchestratorRegressionTests(unittest.TestCase):
                 self.assertTrue(any("task" in error and "schema_version" in error for error in validate_run(root)))
 
     def test_non_object_contracts_fail_closed_without_exceptions(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp) / "run"
-            root.mkdir(parents=True)
-            (root / "run-state.json").write_text("[]", encoding="utf-8")
-            self.assertTrue(any("expected object" in error for error in validate_run(root)))
+        for payload in ("[]", "null"):
+            with self.subTest(run_payload=payload), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / "run"
+                root.mkdir(parents=True)
+                (root / "run-state.json").write_text(payload, encoding="utf-8")
+                self.assertTrue(any("expected object" in error for error in validate_run(root)))
 
         for contract in ("task", "evidence", "finding", "policy-event"):
-            with self.subTest(contract=contract), tempfile.TemporaryDirectory() as temp:
-                root = Path(temp) / "run"
-                context = task("SR-001")
-                write_run(root, run_state(["SR-001"]), [context])
-                task_dir = root / "tasks" / "SR-001"
-                if contract == "task":
-                    (task_dir / "task.json").write_text("[]", encoding="utf-8")
-                elif contract == "evidence":
-                    (task_dir / "evidence.jsonl").write_text("[]\n", encoding="utf-8")
-                elif contract == "finding":
-                    (task_dir / "finding-001.json").write_text("[]", encoding="utf-8")
-                else:
-                    (root / "policy-events.jsonl").write_text("[]\n", encoding="utf-8")
-                errors = validate_run(root)
-                self.assertTrue(any("expected object" in error for error in errors), errors)
+            for payload in ("[]", "null"):
+                with self.subTest(contract=contract, payload=payload), tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp) / "run"
+                    context = task("SR-001")
+                    write_run(root, run_state(["SR-001"]), [context])
+                    task_dir = root / "tasks" / "SR-001"
+                    if contract == "task":
+                        (task_dir / "task.json").write_text(payload, encoding="utf-8")
+                    elif contract == "evidence":
+                        (task_dir / "evidence.jsonl").write_text(payload + "\n", encoding="utf-8")
+                    elif contract == "finding":
+                        (task_dir / "finding-001.json").write_text(payload, encoding="utf-8")
+                    else:
+                        (root / "policy-events.jsonl").write_text(payload + "\n", encoding="utf-8")
+                    errors = validate_run(root)
+                    self.assertTrue(any("expected object" in error for error in errors), errors)
 
     def test_v3_common_envelope_and_profile_are_fail_closed(self) -> None:
         for field in ("research_profile", "authorization", "task_graph", "artifact_roots", "resume"):
@@ -725,6 +735,24 @@ class OrchestratorRegressionTests(unittest.TestCase):
                 any("must include every execution dependency" in error for error in validate_run(root))
             )
 
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            context = task("SR-001")
+            context["safety"] = []
+            write_run(root, run_state(["SR-001"]), [context])
+            errors = validate_run(root)
+            self.assertTrue(any("expected object" in error for error in errors), errors)
+
+    def test_composition_review_type_is_validated_before_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            context = task("SR-001")
+            state = run_state(["SR-001"])
+            state["composition_review"] = 1
+            write_run(root, state, [context])
+            errors, _ = preflight(root, strict_v3=True)
+            self.assertTrue(any("composition_review" in error for error in errors), errors)
+
     def test_preflight_requires_one_context_root_in_first_wave(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "run"
@@ -756,6 +784,7 @@ class OrchestratorRegressionTests(unittest.TestCase):
             "send a probe to the target",
             "运行本地仿真并测量时延",
             "access the FPGA board",
+            "start the local Verilator workload",
         )
         for action in actions:
             with self.subTest(action=action), tempfile.TemporaryDirectory() as temp:
@@ -808,6 +837,29 @@ class OrchestratorRegressionTests(unittest.TestCase):
             self.assertTrue(any("resume.completed_tasks" in error for error in errors), errors)
             self.assertTrue(any("resume.next_actions" in error for error in errors), errors)
 
+    def test_completed_run_cannot_declare_future_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            write_completed_generic_run(root)
+            state_path = root / "run-state.json"
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["resume"]["next_actions"] = ["perform remaining work"]
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+            errors = validate_run(root)
+            self.assertTrue(any("empty resume.next_actions" in error for error in errors), errors)
+
+    def test_malformed_dependencies_fail_closed_without_exception(self) -> None:
+        for dependencies in (1, True, None):
+            with self.subTest(dependencies=dependencies), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / "run"
+                context = task("SR-001")
+                write_run(root, run_state(["SR-001"]), [context])
+                task_path = root / "tasks/SR-001/task.json"
+                context["dependencies"] = dependencies
+                task_path.write_text(json.dumps(context), encoding="utf-8")
+                errors = validate_run(root)
+                self.assertTrue(any("dependencies" in error or "dependency" in error for error in errors), errors)
+
     def test_cosmetic_policy_fallback_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "run"
@@ -823,6 +875,70 @@ class OrchestratorRegressionTests(unittest.TestCase):
             errors = validate_run(root)
             self.assertTrue(any("materially change its objective" in error for error in errors), errors)
             self.assertTrue(any("materially change its research_question" in error for error in errors), errors)
+
+    def test_completed_null_metadata_is_rejected(self) -> None:
+        for filename in ("conflicts.json", "evidence-index.json"):
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / "run"
+                write_completed_generic_run(root)
+                (root / filename).write_text("null", encoding="utf-8")
+                errors = validate_run(root)
+                expected = "expected array" if filename == "conflicts.json" else "expected object"
+                self.assertTrue(any(expected in error for error in errors), errors)
+
+    def test_final_claim_matrix_must_reference_supporting_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            write_completed_generic_run(root)
+            report_path = root / "final/final-report.md"
+            report = report_path.read_text(encoding="utf-8")
+            report = report.replace(
+                "| C-FIXTURE-01 | candidate | EV-SR-001-01 | local fixture | synthetic only |",
+                "| FAKE-CLAIM | verified | EV-DOES-NOT-EXIST | local fixture | synthetic only |",
+            )
+            report_path.write_text(report, encoding="utf-8")
+            errors = validate_run(root)
+            self.assertTrue(any("unknown claim" in error for error in errors), errors)
+            self.assertTrue(any("unknown evidence" in error for error in errors), errors)
+
+    def test_unlisted_task_directory_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            context = task("SR-001")
+            write_run(root, run_state(["SR-001"]), [context])
+            extra_task_path = root / "tasks/SR-999/task.json"
+            extra_task_path.parent.mkdir(parents=True)
+            extra_task_path.write_text(json.dumps(task("SR-999")), encoding="utf-8")
+            errors, _ = preflight(root, strict_v3=True)
+            self.assertTrue(any("undeclared task directory" in error for error in errors), errors)
+
+    def test_boolean_attempt_budget_and_blank_approval_stop_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            context = task("SR-001")
+            context["attempts"] = True
+            context["max_attempts"] = True
+            write_run(root, run_state(["SR-001"]), [context])
+            self.assertTrue(any("attempt budget" in error for error in validate_run(root)))
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            context = task("SR-001")
+            active = task("SR-002", "active_validation", ["SR-001"])
+            action = "collect one bounded local fixture result"
+            active["allowed_actions"] = [action]
+            active["safety"].update(
+                {"capability_boundary": "active_authorized", "active_actions": [action], "approval_ref": "APR-001"}
+            )
+            state = run_state(["SR-001", "SR-002"])
+            state["authorization_tier"] = "A1"
+            state["active_testing_approved"] = True
+            state["active_testing_approval"] = approval_packet(True, ["SR-002"])
+            state["active_testing_approval"]["stop_conditions"] = [""]
+            state["authorization"]["time_window"] = state["active_testing_approval"]["time_window"]
+            state["authorization"]["method_classes"] = [state["active_testing_approval"]["method_class"]]
+            write_run(root, state, [context, active])
+            self.assertTrue(any("stop_conditions" in error for error in validate_run(root)))
 
 
 if __name__ == "__main__":

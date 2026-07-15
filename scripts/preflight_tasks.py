@@ -103,6 +103,8 @@ def preflight(run_dir: Path, strict_v2: bool = False, strict_v3: bool = False) -
     task_ids = state["task_ids"]
     tasks = {task_id: load_json(run_dir / "tasks" / task_id / "task.json") for task_id in task_ids}
     composition = state.get("composition_review", {})
+    if not isinstance(composition, dict):
+        composition = {}
     if composition.get("individual_tasks_within_scope") is not True:
         errors.append("dispatch requires individual_tasks_within_scope=true")
     if composition.get("combined_output_within_scope") is not True:

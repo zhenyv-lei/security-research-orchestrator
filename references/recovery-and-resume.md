@@ -31,7 +31,7 @@ Persist state after every task transition and before any retry. Treat `run-state
 9. Continue independent safe tasks.
 10. Record the resume timestamp and reason.
 
-For every v3 profile, keep `resume.completed_tasks`, `retryable_tasks`, and `blocked_tasks` as exact, duplicate-free projections of task status; keep `next_actions` as non-empty strings. A completed run requires a non-empty checkpoint ID. Do not treat resume validation as a microarchitecture-only feature.
+For every v3 profile, keep `resume.completed_tasks`, `retryable_tasks`, and `blocked_tasks` as exact, duplicate-free projections of task status; keep each `next_actions` entry as a non-empty string. A completed run requires a non-empty checkpoint ID and an empty `next_actions` list. Do not treat resume validation as a microarchitecture-only feature.
 
 ## Safe Fallback Rules
 

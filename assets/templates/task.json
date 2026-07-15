@@ -14,6 +14,7 @@
     "cpu": null,
     "memory_gb": null,
     "wall_time_minutes": null,
+    "storage_gb": null,
     "exclusive_resources": []
   },
   "allowed_actions": [],

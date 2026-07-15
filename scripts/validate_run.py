@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 import unicodedata
@@ -218,6 +219,18 @@ TERMINAL_EXPERIMENT_STATUSES = {
     "policy_blocked",
     "cancelled",
 }
+TASK_EXPERIMENT_STATUSES = {
+    "pending": {"planned"},
+    "running": EXPERIMENT_STATUSES,
+    "retryable_error": {"planned", "blocked_technical"},
+    "completed": TERMINAL_EXPERIMENT_STATUSES,
+    "incomplete": {"inconclusive", "blocked_technical", "policy_blocked", "cancelled"},
+    "needs_input": {"planned", "cancelled"},
+    "needs_authorization": {"planned", "cancelled"},
+    "blocked_technical": {"blocked_technical", "inconclusive", "cancelled"},
+    "policy_blocked": {"policy_blocked", "cancelled"},
+    "cancelled": {"cancelled"},
+}
 VERDICTS = {"verified", "corroborated", "candidate", "rejected", "blocked"}
 FINDING_SEVERITIES = {"critical", "high", "medium", "low", "informational", "undetermined"}
 FINDING_CONFIDENCES = {"high", "medium", "low"}
@@ -262,6 +275,7 @@ EXECUTION_TARGET_CLASSES = {
 TASK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 EXPERIMENT_ID_PATTERN = re.compile(r"EXP-[A-Za-z0-9][A-Za-z0-9._-]{0,123}\Z")
 CELL_ID_PATTERN = re.compile(r"CELL-[A-Za-z0-9][A-Za-z0-9._-]{0,122}\Z")
+VARIABLE_ID_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9._-]{0,63}\Z")
 TEXT_OUTPUT_SUFFIXES = {".json", ".jsonl", ".md", ".txt", ".yaml", ".yml"}
 GENERATED_EVIDENCE_KINDS = {
     "build_log",
@@ -309,6 +323,12 @@ TASK_CLASS_ROLES = {
     "mitigation": "mitigation",
     "synthesis": "synthesis",
 }
+COMPOSITION_REQUIRED = {
+    "individual_tasks_within_scope",
+    "combined_output_within_scope",
+    "unnecessary_operational_detail_removed",
+    "sensitive_data_redacted",
+}
 MICROARCH_PROFILE = "microarchitecture-security"
 SNAPSHOT_IDENTITY_FIELDS = (
     "repository",
@@ -335,6 +355,7 @@ MICROARCH_FINAL_REQUIRED_HEADINGS = {
 }
 FINAL_REPORT_TITLE = "# Security Research Report"
 CLAIM_MATRIX_HEADER = "| Claim ID | Verdict | Evidence IDs | Scope | Limitations |"
+LOAD_FAILED = object()
 
 ACTIVE_ACTION_PATTERN = re.compile(
     r"(?:\b(?:run|execute|invoke|simulate|scan|measure|instrument|mutate|flash|program|launch|collect|capture|"
@@ -356,6 +377,10 @@ HARDWARE_INTERACTION_PATTERN = re.compile(
     r"(?:\b(?:fpga|silicon|hardware\s+(?:board|device|counter)|board)\b|芯片|板卡|开发板|硬件计数器))",
     re.IGNORECASE,
 )
+EXECUTION_START_PATTERN = re.compile(
+    r"\bstart\b.{0,40}\b(?:verilator|simulator|simulation|workload|benchmark|fuzzer|target|device|board|test)\b",
+    re.IGNORECASE,
+)
 
 
 def load_json(path: Path, errors: list[str]) -> Any:
@@ -365,7 +390,7 @@ def load_json(path: Path, errors: list[str]) -> Any:
         errors.append(f"missing file: {path}")
     except json.JSONDecodeError as exc:
         errors.append(f"invalid JSON {path}: {exc}")
-    return None
+    return LOAD_FAILED
 
 
 def require_keys(data: Any, required: set[str], path: Path, errors: list[str]) -> None:
@@ -403,6 +428,16 @@ def is_iso8601_timestamp(value: Any) -> bool:
     return parsed.tzinfo is not None
 
 
+def is_cell_assignment_value(value: Any) -> bool:
+    if value is None or isinstance(value, (dict, list)):
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, float):
+        return math.isfinite(value)
+    return isinstance(value, (bool, int))
+
+
 def canonical_contract_hash(experiment: dict[str, Any]) -> str:
     contract = {key: value for key, value in experiment.items() if key != "status"}
     payload = json.dumps(contract, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -410,7 +445,10 @@ def canonical_contract_hash(experiment: dict[str, Any]) -> str:
 
 
 def describes_active_action(value: Any) -> bool:
-    return isinstance(value, str) and ACTIVE_ACTION_PATTERN.search(value) is not None
+    return isinstance(value, str) and (
+        ACTIVE_ACTION_PATTERN.search(value) is not None
+        or EXECUTION_START_PATTERN.search(value) is not None
+    )
 
 
 def normalize_contract_text(value: Any) -> str:
@@ -418,6 +456,20 @@ def normalize_contract_text(value: Any) -> str:
         return ""
     normalized = unicodedata.normalize("NFKC", value).casefold()
     return "".join(character for character in normalized if character.isalnum())
+
+
+def task_safety(task: Any) -> dict[str, Any]:
+    if not isinstance(task, dict):
+        return {}
+    safety = task.get("safety")
+    return safety if isinstance(safety, dict) else {}
+
+
+def task_dependencies(task: Any) -> list[Any]:
+    if not isinstance(task, dict):
+        return []
+    dependencies = task.get("dependencies")
+    return dependencies if isinstance(dependencies, list) else []
 
 
 def snapshot_identity(snapshot: Any) -> Optional[tuple[str, ...]]:
@@ -443,13 +495,29 @@ def validate_common_v3_state(
     task_ids: list[str],
     errors: list[str],
 ) -> None:
+    if not is_non_empty_text(state.get("run_id")):
+        errors.append(f"run_id must be a non-empty string in {state_path}")
+    if not is_iso8601_timestamp(state.get("updated_at")):
+        errors.append(f"updated_at must be an ISO-8601 timestamp with timezone in {state_path}")
     if not is_non_empty_text(state.get("objective")):
         errors.append(f"run objective must be non-empty in {state_path}")
-    if not isinstance(state.get("scope"), dict):
+    scope = state.get("scope")
+    if not isinstance(scope, dict):
         errors.append(f"run scope must be an object in {state_path}")
+    else:
+        for field in ("assets", "versions", "environments"):
+            values = scope.get(field)
+            if not is_string_list(values, non_empty=True) or len(values) != len(set(values)):
+                errors.append(f"scope.{field} must be a non-empty unique string list in {state_path}")
     for field in ("allowed_actions", "prohibited_actions", "completion_criteria"):
         if not is_string_list(state.get(field), non_empty=True):
             errors.append(f"run {field} must be a non-empty string list in {state_path}")
+
+    composition = state.get("composition_review")
+    if not isinstance(composition, dict) or not COMPOSITION_REQUIRED.issubset(composition):
+        errors.append(f"composition_review must contain all v3 checks in {state_path}")
+    elif any(not isinstance(composition.get(field), bool) for field in COMPOSITION_REQUIRED):
+        errors.append(f"composition_review checks must be booleans in {state_path}")
 
     authorization = state.get("authorization")
     authorization_fields = {
@@ -511,6 +579,8 @@ def validate_common_v3_state(
     next_actions = resume.get("next_actions")
     if not isinstance(next_actions, list) or any(not is_non_empty_text(item) for item in next_actions):
         errors.append(f"resume.next_actions must be a list of non-empty strings in {state_path}")
+    elif state.get("status") == "completed" and next_actions:
+        errors.append(f"completed run must have an empty resume.next_actions list in {state_path}")
 
 
 def validate_target_snapshot(
@@ -586,7 +656,7 @@ def validate_task_graph(
     expected_edges = {
         (dependency, task_id)
         for task_id, task in tasks.items()
-        for dependency in task.get("dependencies", [])
+        for dependency in task_dependencies(task)
         if isinstance(dependency, str) and dependency in task_ids
     }
     if parsed_edges != expected_edges:
@@ -602,7 +672,7 @@ def validate_task_graph(
         if task_id in visited:
             return
         visiting.add(task_id)
-        for dependency in tasks[task_id].get("dependencies", []):
+        for dependency in task_dependencies(tasks[task_id]):
             if isinstance(dependency, str) and dependency in tasks:
                 visit(dependency)
         visiting.remove(task_id)
@@ -667,7 +737,7 @@ def validate_microarchitecture_artifacts(
     experiments: dict[str, dict[str, Any]] = {}
     experiments_by_task: dict[str, set[str]] = {}
     experiment_cells: dict[str, dict[str, dict[str, Any]]] = {}
-    experiment_expected_coordinates: dict[str, set[tuple[str, str, int, int]]] = {}
+    experiment_matrices: dict[str, tuple[set[str], set[str], set[int], int]] = {}
     experiment_hashes: dict[str, str] = {}
     completed_experiments: set[str] = set()
     expected_artifacts_by_experiment: list[tuple[Path, str, list[str]]] = []
@@ -684,7 +754,7 @@ def validate_microarchitecture_artifacts(
                 errors.append(f"experiment contract escapes its owned directory: {experiment_path}")
                 continue
             experiment = load_json(experiment_path, errors)
-            if experiment is None:
+            if experiment is LOAD_FAILED:
                 continue
             require_keys(experiment, EXPERIMENT_REQUIRED, experiment_path, errors)
             if not isinstance(experiment, dict):
@@ -732,17 +802,23 @@ def validate_microarchitecture_artifacts(
             elif task is not None:
                 task_status = task.get("status")
                 experiment_status = experiment.get("status")
-                if task_status == "completed" and experiment_status not in TERMINAL_EXPERIMENT_STATUSES:
-                    errors.append(f"completed task owns a non-terminal experiment in {experiment_path}")
-                if task_status == "pending" and experiment_status != "planned":
-                    errors.append(f"pending task may own only planned experiments in {experiment_path}")
-            if not isinstance(experiment.get("revision"), int) or experiment.get("revision", 0) < 1:
+                allowed_statuses = TASK_EXPERIMENT_STATUSES.get(task_status) if isinstance(task_status, str) else None
+                if allowed_statuses is None or experiment_status not in allowed_statuses:
+                    errors.append(
+                        f"task status {task_status} may not own experiment status {experiment_status} in {experiment_path}"
+                    )
+            if (
+                not isinstance(experiment.get("revision"), int)
+                or isinstance(experiment.get("revision"), bool)
+                or experiment.get("revision", 0) < 1
+            ):
                 errors.append(f"invalid experiment revision in {experiment_path}")
             if not isinstance(experiment.get("hypothesis"), str) or not experiment.get("hypothesis").strip():
                 errors.append(f"experiment hypothesis must be non-empty in {experiment_path}")
 
             variables = experiment.get("variables")
             variable_fields = {"independent", "dependent", "controlled", "nuisance"}
+            independent_variable_ids: set[str] = set()
             if not isinstance(variables, dict) or not variable_fields.issubset(variables):
                 errors.append(f"invalid experiment variables in {experiment_path}")
             elif any(
@@ -752,10 +828,18 @@ def validate_microarchitecture_artifacts(
                 for field in variable_fields
             ):
                 errors.append(f"experiment variable groups must be unique string lists in {experiment_path}")
-            elif any(not variables[field] for field in ("independent", "dependent", "controlled")):
+            elif any(not variables[field] for field in ("dependent", "controlled")):
                 errors.append(
-                    f"experiment independent, dependent, and controlled variables must be non-empty in {experiment_path}"
+                    f"experiment dependent and controlled variables must be non-empty in {experiment_path}"
                 )
+            else:
+                independent_variables = variables["independent"]
+                if any(not VARIABLE_ID_PATTERN.fullmatch(item) for item in independent_variables):
+                    errors.append(
+                        f"experiment independent variables must be stable identifier strings in {experiment_path}"
+                    )
+                else:
+                    independent_variable_ids = set(independent_variables)
 
             list_fields = (
                 "workloads",
@@ -816,19 +900,32 @@ def validate_microarchitecture_artifacts(
                     assignments = cell.get("variable_assignments")
                     if (
                         not isinstance(assignments, dict)
-                        or not assignments
                         or any(not is_non_empty_text(key) for key in assignments)
                     ):
                         errors.append(
-                            f"experiment cell variable_assignments must be a non-empty object with string keys at "
+                            f"experiment cell variable_assignments must be an object with string keys at "
                             f"{experiment_path}:{cell_index}"
                         )
                     else:
+                        if set(assignments) != independent_variable_ids:
+                            errors.append(
+                                f"experiment cell variable_assignments must exactly match declared independent variables at "
+                                f"{experiment_path}:{cell_index}"
+                            )
+                        if any(not is_cell_assignment_value(value) for value in assignments.values()):
+                            errors.append(
+                                f"experiment cell variable assignments must use non-null scalar values at "
+                                f"{experiment_path}:{cell_index}"
+                            )
                         fingerprint = json.dumps(assignments, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
                         if fingerprint in assignment_fingerprints:
                             errors.append(f"duplicate experiment cell variable assignments at {experiment_path}:{cell_index}")
                         assignment_fingerprints.add(fingerprint)
                     parsed_cells[cell_id] = cell
+            if independent_variable_ids and len(parsed_cells) < 2:
+                errors.append(
+                    f"experiment with independent variables requires at least two distinct cells in {experiment_path}"
+                )
             if isinstance(experiment_id, str):
                 experiment_cells[experiment_id] = parsed_cells
                 workloads = experiment.get("workloads")
@@ -842,13 +939,12 @@ def validate_microarchitecture_artifacts(
                     and not isinstance(repetitions, bool)
                     and repetitions > 0
                 ):
-                    experiment_expected_coordinates[experiment_id] = {
-                        (cell_id, workload_id, seed, repetition_index)
-                        for cell_id in parsed_cells
-                        for workload_id in workloads
-                        for seed in seeds
-                        for repetition_index in range(repetitions)
-                    }
+                    experiment_matrices[experiment_id] = (
+                        set(parsed_cells),
+                        set(workloads),
+                        set(seeds),
+                        repetitions,
+                    )
 
             budget = experiment.get("resource_budget")
             budget_fields = {"cpu", "memory_gb", "wall_time_minutes", "storage_gb", "exclusive_resources"}
@@ -860,7 +956,7 @@ def validate_microarchitecture_artifacts(
                 or len(budget.get("exclusive_resources", []))
                 != len(set(budget.get("exclusive_resources", [])))
                 or any(
-                    value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0)
+                    isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0
                     for value in (budget.get("cpu"), budget.get("memory_gb"), budget.get("wall_time_minutes"), budget.get("storage_gb"))
                 )
             ):
@@ -875,7 +971,7 @@ def validate_microarchitecture_artifacts(
                     safe_task_exclusive
                 ):
                     errors.append(f"experiment exclusive resources are not declared by its task in {experiment_path}")
-                for field in ("cpu", "memory_gb", "wall_time_minutes"):
+                for field in ("cpu", "memory_gb", "wall_time_minutes", "storage_gb"):
                     experiment_limit = budget.get(field)
                     task_limit = task_resources.get(field) if isinstance(task_resources, dict) else None
                     if (
@@ -911,6 +1007,7 @@ def validate_microarchitecture_artifacts(
 
     artifact_ids: set[str] = set()
     artifact_experiments: dict[str, Any] = {}
+    artifact_ids_by_experiment: dict[str, set[str]] = {}
     artifact_coordinates_by_experiment: dict[str, set[tuple[str, str, int, int]]] = {}
     registered_artifact_paths: set[Path] = set()
     artifact_path_owners: dict[Path, str] = {}
@@ -937,6 +1034,8 @@ def validate_microarchitecture_artifacts(
             else:
                 artifact_ids.add(artifact_id)
                 artifact_experiments[artifact_id] = artifact.get("experiment_id")
+                if isinstance(artifact.get("experiment_id"), str):
+                    artifact_ids_by_experiment.setdefault(artifact["experiment_id"], set()).add(artifact_id)
 
             producer = artifact.get("producer_task_id")
             if not isinstance(producer, str) or producer not in tasks:
@@ -950,7 +1049,14 @@ def validate_microarchitecture_artifacts(
             if experiment is not None:
                 if experiment.get("status") == "planned":
                     errors.append(f"planned experiment must not have realized artifacts at {manifest_path}:{line_no}")
-                if artifact.get("experiment_revision") != experiment.get("revision"):
+                artifact_revision = artifact.get("experiment_revision")
+                if (
+                    not isinstance(artifact_revision, int)
+                    or isinstance(artifact_revision, bool)
+                    or artifact_revision < 1
+                ):
+                    errors.append(f"artifact experiment_revision must be a positive integer at {manifest_path}:{line_no}")
+                elif artifact_revision != experiment.get("revision"):
                     errors.append(f"artifact experiment_revision differs from its experiment at {manifest_path}:{line_no}")
                 expected_contract_hash = experiment_hashes.get(str(experiment_id))
                 if artifact.get("experiment_contract_hash") != expected_contract_hash:
@@ -1057,7 +1163,13 @@ def validate_microarchitecture_artifacts(
                 and repetition_index >= 0
             ):
                 coordinate = (cell_id, workload_ids[0], seed, repetition_index)
-                if coordinate not in experiment_expected_coordinates.get(str(experiment_id), set()):
+                matrix = experiment_matrices.get(str(experiment_id))
+                if matrix is None or not (
+                    coordinate[0] in matrix[0]
+                    and coordinate[1] in matrix[1]
+                    and coordinate[2] in matrix[2]
+                    and coordinate[3] < matrix[3]
+                ):
                     errors.append(f"artifact coordinate is outside its experiment matrix at {manifest_path}:{line_no}")
                 else:
                     artifact_coordinates_by_experiment.setdefault(str(experiment_id), set()).add(coordinate)
@@ -1066,17 +1178,23 @@ def validate_microarchitecture_artifacts(
         missing = sorted(set(expected) - artifact_ids)
         if missing:
             errors.append(f"unknown expected artifact IDs in {experiment_path}: {', '.join(missing)}")
+        unexpected = sorted(artifact_ids_by_experiment.get(experiment_id, set()) - set(expected))
+        if unexpected:
+            errors.append(f"completed experiment has unplanned artifact IDs in {experiment_path}: {', '.join(unexpected)}")
         for artifact_id in set(expected) & artifact_ids:
             if artifact_experiments.get(artifact_id) != experiment_id:
                 errors.append(f"artifact {artifact_id} is owned by a different experiment than {experiment_id}")
-        missing_coordinates = sorted(
-            experiment_expected_coordinates.get(experiment_id, set())
-            - artifact_coordinates_by_experiment.get(experiment_id, set())
+        matrix = experiment_matrices.get(experiment_id)
+        expected_coordinate_count = (
+            len(matrix[0]) * len(matrix[1]) * len(matrix[2]) * matrix[3]
+            if matrix is not None
+            else 0
         )
-        if missing_coordinates:
+        covered_coordinate_count = len(artifact_coordinates_by_experiment.get(experiment_id, set()))
+        if covered_coordinate_count != expected_coordinate_count:
             errors.append(
                 f"completed experiment has uncovered cell/workload/seed/repetition coordinates in {experiment_path}: "
-                + ", ".join("/".join(map(str, coordinate)) for coordinate in missing_coordinates)
+                f"expected {expected_coordinate_count}, found {covered_coordinate_count}"
             )
 
     if experiments_root.exists():
@@ -1125,7 +1243,7 @@ def expected_output_path(
         errors.append(f"expected output escapes run directory for {task_id}: {value}")
         return None
     own_root = Path("tasks") / task_id
-    task_class = task.get("safety", {}).get("task_class")
+    task_class = task_safety(task).get("task_class")
     if relative.parts[0] == "tasks":
         if relative != own_root and own_root not in relative.parents:
             errors.append(f"expected output is outside output ownership for {task_id}: {value}")
@@ -1200,6 +1318,8 @@ def validate_completed_run_package(
     state: dict[str, Any],
     tasks: dict[str, dict[str, Any]],
     seen_evidence: set[str],
+    evidence_supports: dict[str, set[str]],
+    finding_verdicts: dict[str, str],
     errors: list[str],
 ) -> None:
     resume = state.get("resume", {})
@@ -1209,7 +1329,7 @@ def validate_completed_run_package(
     synthesis_tasks = [
         task_id
         for task_id, task in tasks.items()
-        if task.get("safety", {}).get("task_class") == "synthesis" and task.get("status") == "completed"
+        if task_safety(task).get("task_class") == "synthesis" and task.get("status") == "completed"
     ]
     if len(synthesis_tasks) != 1:
         errors.append("completed v3 run requires exactly one completed synthesis task")
@@ -1221,7 +1341,9 @@ def validate_completed_run_package(
 
     evidence_index_path = run_dir / "evidence-index.json"
     evidence_index = load_json(evidence_index_path, errors)
-    if isinstance(evidence_index, dict):
+    if evidence_index is LOAD_FAILED:
+        pass
+    elif isinstance(evidence_index, dict):
         if evidence_index.get("schema_version") != 3:
             errors.append(f"evidence-index must use schema_version 3 in {evidence_index_path}")
         records = evidence_index.get("records")
@@ -1237,7 +1359,7 @@ def validate_completed_run_package(
                 errors.append("evidence-index.json must index every evidence ID exactly once")
             if len(indexed_ids) != len(set(indexed_ids)) or len(indexed_ids) != len(records):
                 errors.append("evidence-index.json contains duplicate or malformed records")
-    elif evidence_index is not None:
+    else:
         errors.append(f"expected object: {evidence_index_path}")
 
     final_report_path = run_dir / "final" / "final-report.md"
@@ -1268,6 +1390,30 @@ def validate_completed_run_package(
     ]
     if not data_rows:
         errors.append("final report claim-to-evidence matrix has no claim rows")
+    known_claims = {claim_id for claims in evidence_supports.values() for claim_id in claims}
+    for row_index, row in enumerate(data_rows, 1):
+        columns = [column.strip().strip("`") for column in row.strip("|").split("|")]
+        if len(columns) != 5 or any(not column for column in columns):
+            errors.append(f"final report claim-to-evidence row {row_index} must have five non-empty columns")
+            continue
+        claim_id, verdict, evidence_cell, _, _ = columns
+        if claim_id not in known_claims:
+            errors.append(f"final report claim-to-evidence row references unknown claim: {claim_id}")
+        if not is_enum_value(verdict, VERDICTS):
+            errors.append(f"final report claim-to-evidence row has invalid verdict: {verdict}")
+        elif claim_id in finding_verdicts and verdict != finding_verdicts[claim_id]:
+            errors.append(f"final report verdict differs from finding {claim_id}: {verdict}")
+        elif verdict in {"verified", "corroborated"} and claim_id not in finding_verdicts:
+            errors.append(f"final report accepted claim lacks a matching finding record: {claim_id}")
+        evidence_ids = [item.strip().strip("`") for item in evidence_cell.split(",") if item.strip()]
+        if not evidence_ids:
+            errors.append(f"final report claim-to-evidence row has no evidence IDs: {claim_id}")
+            continue
+        for evidence_id in evidence_ids:
+            if evidence_id not in seen_evidence:
+                errors.append(f"final report claim-to-evidence row references unknown evidence: {evidence_id}")
+            elif claim_id not in evidence_supports.get(evidence_id, set()):
+                errors.append(f"final report evidence {evidence_id} does not support claim {claim_id}")
 
 
 def validate_task_outputs(
@@ -1295,7 +1441,7 @@ def validate_run(run_dir: Path) -> list[str]:
     errors: list[str] = []
     state_path = run_dir / "run-state.json"
     state = load_json(state_path, errors)
-    if state is None:
+    if state is LOAD_FAILED:
         return errors
     require_keys(state, RUN_REQUIRED, state_path, errors)
     if not isinstance(state, dict):
@@ -1327,11 +1473,11 @@ def validate_run(run_dir: Path) -> list[str]:
             if approved is not state.get("active_testing_approved"):
                 errors.append("active_testing_approval.approved must match active_testing_approved")
             stop_conditions = active_approval.get("stop_conditions")
-            if not isinstance(stop_conditions, list) or any(not isinstance(item, str) for item in stop_conditions):
-                errors.append("active_testing_approval.stop_conditions must be a list of strings")
+            if not is_string_list(stop_conditions):
+                errors.append("active_testing_approval.stop_conditions must be a list of non-empty strings")
             approved_task_ids = active_approval.get("approved_task_ids")
-            if not isinstance(approved_task_ids, list) or any(not isinstance(item, str) for item in approved_task_ids):
-                errors.append("active_testing_approval.approved_task_ids must be a list of strings")
+            if not is_string_list(approved_task_ids):
+                errors.append("active_testing_approval.approved_task_ids must be a list of non-empty strings")
                 approved_task_ids = []
             elif len(approved_task_ids) != len(set(approved_task_ids)):
                 errors.append("active_testing_approval.approved_task_ids must not contain duplicates")
@@ -1400,9 +1546,19 @@ def validate_run(run_dir: Path) -> list[str]:
     evidence_artifact_refs: list[tuple[Path, str]] = []
     finding_refs: list[tuple[Path, str, list[str], str, str, Any]] = []
     seen_finding_ids: set[str] = set()
+    finding_verdicts: dict[str, str] = {}
     policy_blocked_tasks: set[str] = set()
     task_records: dict[str, dict[str, Any]] = {}
     run_root = run_dir.resolve()
+    tasks_root = run_root / "tasks"
+    if not tasks_root.is_dir() or tasks_root.is_symlink():
+        errors.append(f"tasks root must be a real directory: {tasks_root}")
+    else:
+        for entry in tasks_root.iterdir():
+            if not entry.is_dir() or entry.is_symlink() or not (entry / "task.json").is_file():
+                errors.append(f"unexpected or incomplete task entry: {entry}")
+            elif entry.name not in task_ids:
+                errors.append(f"undeclared task directory is outside task graph ownership: {entry.name}")
 
     for task_id in task_ids:
         task_dir = run_root / "tasks" / task_id
@@ -1411,7 +1567,7 @@ def validate_run(run_dir: Path) -> list[str]:
             continue
         task_path = task_dir / "task.json"
         task = load_json(task_path, errors)
-        if task is None:
+        if task is LOAD_FAILED:
             continue
         require_keys(task, TASK_REQUIRED, task_path, errors)
         if not isinstance(task, dict):
@@ -1449,7 +1605,7 @@ def validate_run(run_dir: Path) -> list[str]:
             if task.get("schema_version") != 3:
                 errors.append(f"microarchitecture task must use schema_version 3 in {task_path}")
             resources = task.get("resource_requirements")
-            resource_fields = {"cpu", "memory_gb", "wall_time_minutes", "exclusive_resources"}
+            resource_fields = {"cpu", "memory_gb", "wall_time_minutes", "storage_gb", "exclusive_resources"}
             if not isinstance(resources, dict) or not resource_fields.issubset(resources):
                 errors.append(f"invalid resource_requirements in {task_path}")
             elif (
@@ -1467,10 +1623,18 @@ def validate_run(run_dir: Path) -> list[str]:
                         resources.get("cpu"),
                         resources.get("memory_gb"),
                         resources.get("wall_time_minutes"),
+                        resources.get("storage_gb"),
                     )
                 )
             ):
                 errors.append(f"malformed resource_requirements in {task_path}")
+            elif not is_enum_value(task.get("execution_mode"), {"read-only", "passive-research"}) and any(
+                isinstance(resources.get(field), bool)
+                or not isinstance(resources.get(field), (int, float))
+                or resources.get(field) <= 0
+                for field in ("cpu", "memory_gb", "wall_time_minutes", "storage_gb")
+            ):
+                errors.append(f"executable task requires positive numeric resource reservations in {task_path}")
             if not is_enum_value(task.get("execution_mode"), MICROARCH_EXECUTION_MODES):
                 errors.append(f"invalid microarchitecture execution_mode in {task_path}: {task.get('execution_mode')}")
             task_snapshot = task.get("target_snapshot")
@@ -1493,15 +1657,18 @@ def validate_run(run_dir: Path) -> list[str]:
         if status == "policy_blocked":
             policy_blocked_tasks.add(task_id)
         dependencies = task.get("dependencies", [])
-        if not isinstance(dependencies, list) or any(dep not in task_ids for dep in dependencies):
+        valid_dependencies = task_dependencies(task)
+        if not isinstance(dependencies, list) or any(dep not in task_ids for dep in valid_dependencies):
             errors.append(f"unknown or malformed dependency in {task_path}")
-        elif task_id in dependencies:
+        elif task_id in valid_dependencies:
             errors.append(f"task cannot depend on itself in {task_path}")
         attempts = task.get("attempts")
         max_attempts = task.get("max_attempts")
         if (
             not isinstance(attempts, int)
             or not isinstance(max_attempts, int)
+            or isinstance(attempts, bool)
+            or isinstance(max_attempts, bool)
             or attempts < 0
             or max_attempts < 0
             or attempts > max_attempts
@@ -1578,7 +1745,7 @@ def validate_run(run_dir: Path) -> list[str]:
                     or len(composition_dependencies) != len(set(composition_dependencies))
                 ):
                     errors.append(f"unknown or malformed composition dependency in {task_path}")
-                elif not set(dependencies).issubset(set(composition_dependencies)):
+                elif not set(valid_dependencies).issubset(set(composition_dependencies)):
                     errors.append(f"composition_dependencies must include every execution dependency in {task_path}")
                 safe_fallback = safety.get("safe_fallback")
                 if safe_fallback is not None and not is_non_empty_text(safe_fallback):
@@ -1673,7 +1840,7 @@ def validate_run(run_dir: Path) -> list[str]:
                     microarchitecture_profile
                     and (
                         is_enum_value(record.get("kind"), GENERATED_EVIDENCE_KINDS)
-                        or task.get("safety", {}).get("task_class") == "active_validation"
+                        or task_safety(task).get("task_class") == "active_validation"
                     )
                     and (not isinstance(artifact_id, str) or not artifact_id.strip())
                 ):
@@ -1686,7 +1853,7 @@ def validate_run(run_dir: Path) -> list[str]:
 
         for finding_path in sorted(task_dir.glob("finding-*.json")):
             finding = load_json(finding_path, errors)
-            if finding is None:
+            if finding is LOAD_FAILED:
                 continue
             require_keys(finding, FINDING_REQUIRED, finding_path, errors)
             if not isinstance(finding, dict):
@@ -1712,6 +1879,8 @@ def validate_run(run_dir: Path) -> list[str]:
                 if finding_id in seen_finding_ids:
                     errors.append(f"duplicate finding_id in {finding_path}: {finding_id}")
                 seen_finding_ids.add(finding_id)
+                if is_enum_value(verdict, VERDICTS):
+                    finding_verdicts[finding_id] = verdict
             for field in ("affected_scope", "preconditions", "remediation", "limitations"):
                 if not is_string_list(finding.get(field), non_empty=True):
                     errors.append(f"finding {field} must be a non-empty list of strings in {finding_path}")
@@ -1753,9 +1922,9 @@ def validate_run(run_dir: Path) -> list[str]:
     for task_id, task in task_records.items():
         if not is_enum_value(task.get("status"), {"running", "completed"}):
             continue
-        task_class = task.get("safety", {}).get("task_class")
+        task_class = task_safety(task).get("task_class")
         required_statuses = TERMINAL_TASK_STATUSES if task_class == "synthesis" else {"completed"}
-        for dependency in task.get("dependencies", []) if isinstance(task.get("dependencies"), list) else []:
+        for dependency in task_dependencies(task):
             if not isinstance(dependency, str):
                 continue
             dependency_task = task_records.get(dependency)
@@ -1835,9 +2004,9 @@ def validate_run(run_dir: Path) -> list[str]:
             if (
                 verifier_task is None
                 or verifier_task_id == origin_task_id
-                or verifier_task.get("safety", {}).get("task_class") != "verification"
+                or task_safety(verifier_task).get("task_class") != "verification"
                 or verifier_task.get("status") != "completed"
-                or origin_task_id not in verifier_task.get("dependencies", [])
+                or origin_task_id not in task_dependencies(verifier_task)
                 or not verifier_evidence
             ):
                 errors.append(
@@ -1954,7 +2123,9 @@ def validate_run(run_dir: Path) -> list[str]:
         conflict_path = resolve_run_path(run_dir, state.get("conflicts_file"), "conflicts_file", errors)
         if conflict_path is not None:
             conflicts = load_json(conflict_path, errors)
-            if conflicts is not None and not isinstance(conflicts, list):
+            if conflicts is LOAD_FAILED:
+                pass
+            elif not isinstance(conflicts, list):
                 errors.append(f"expected array: {conflict_path}")
             elif isinstance(conflicts, list):
                 seen_conflict_ids: set[str] = set()
@@ -2002,11 +2173,15 @@ def validate_run(run_dir: Path) -> list[str]:
                         if not conflict_evidence:
                             errors.append(f"resolved conflict evidence_ids must be non-empty at {conflict_path}:{index + 1}")
                         verifier_task = task_records.get(verifier) if isinstance(verifier, str) else None
-                        verifier_dependencies = set(verifier_task.get("dependencies", [])) if verifier_task else set()
+                        verifier_dependencies = {
+                            dependency
+                            for dependency in task_dependencies(verifier_task)
+                            if isinstance(dependency, str)
+                        }
                         if (
                             verifier_task is None
                             or verifier in conflict_tasks
-                            or verifier_task.get("safety", {}).get("task_class") != "verification"
+                            or task_safety(verifier_task).get("task_class") != "verification"
                             or verifier_task.get("status") != "completed"
                             or not set(conflict_tasks).issubset(verifier_dependencies)
                         ):
@@ -2025,13 +2200,7 @@ def validate_run(run_dir: Path) -> list[str]:
 
     if state.get("status") == "completed":
         composition = state.get("composition_review", {})
-        required_checks = {
-            "individual_tasks_within_scope",
-            "combined_output_within_scope",
-            "unnecessary_operational_detail_removed",
-            "sensitive_data_redacted",
-        }
-        if not isinstance(composition, dict) or any(composition.get(key) is not True for key in required_checks):
+        if not isinstance(composition, dict) or any(composition.get(key) is not True for key in COMPOSITION_REQUIRED):
             errors.append("completed run requires all composition_review checks to be true")
         if not seen_evidence:
             errors.append("completed run has no evidence records")
@@ -2047,7 +2216,15 @@ def validate_run(run_dir: Path) -> list[str]:
             if not is_enum_value(task.get("status"), TERMINAL_TASK_STATUSES):
                 errors.append(f"completed run has non-terminal task: {task_id}")
         if schema_version == 3:
-            validate_completed_run_package(run_root, state, task_records, seen_evidence, errors)
+            validate_completed_run_package(
+                run_root,
+                state,
+                task_records,
+                seen_evidence,
+                evidence_supports,
+                finding_verdicts,
+                errors,
+            )
 
     return errors
 

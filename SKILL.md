@@ -123,7 +123,7 @@ Require each worker to:
 
 Do not let workers hand off tasks directly. Route all new work proposals through the manager so authorization, dependencies, and composition risk remain centralized.
 
-Write each generated experiment artifact under its owning `experiments/<experiment-id>/results/` directory and register it in `artifacts/manifest.jsonl`. Bind the record to the experiment revision, canonical contract hash, cell ID, seed, and repetition index. Do not place generated output beside design inputs or shared workloads.
+Write each generated experiment artifact under its owning `experiments/<experiment-id>/results/` directory and register it in `artifacts/manifest.jsonl`. Bind the record to the experiment revision, canonical contract hash, cell ID, seed, and repetition index; completed experiments realize exactly their predeclared artifact IDs. Do not place generated output beside design inputs or shared workloads.
 
 Output: task reports, `evidence.jsonl`, candidate `finding-*.json` files, experiment results and manifest records when approved, and updated task status.
 

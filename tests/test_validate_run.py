@@ -85,6 +85,7 @@ def task(
             "cpu": 2,
             "memory_gb": 4,
             "wall_time_minutes": 5,
+            "storage_gb": 2,
             "exclusive_resources": ["sim-slot"] if active else [],
         },
         "allowed_actions": ["run one bounded local simulation"] if active else ["read local artifacts"],
@@ -280,7 +281,7 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
                 "approval_ref": "APR-001",
                 "hypothesis": "A bounded local observation is reproducible.",
                 "variables": {
-                    "independent": ["stimulus class"],
+                    "independent": [],
                     "dependent": ["cycle count"],
                     "controlled": ["commit and configuration"],
                     "nuisance": [],
@@ -294,7 +295,7 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
                     {
                         "cell_id": "CELL-001",
                         "label": "bounded control configuration",
-                        "variable_assignments": {"configuration": "control"},
+                        "variable_assignments": {},
                     }
                 ],
                 "command_plan": ["run the approved local simulator"],
@@ -409,6 +410,8 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             context = json.loads(context_path.read_text(encoding="utf-8"))
             context["target_snapshot"] = static_snapshot
             write_json(context_path, context)
+            for task_id in ("SR-002", "SR-003", "SR-004"):
+                shutil.rmtree(root / "tasks" / task_id)
             shutil.rmtree(root / "experiments")
             shutil.rmtree(root / "artifacts")
             write_json(
@@ -660,17 +663,18 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
 
     def test_microarchitecture_json_contracts_fail_closed_on_arrays(self) -> None:
         for contract in ("experiment", "artifact", "evidence-index"):
-            with self.subTest(contract=contract), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                self.make_valid_run(root)
-                if contract == "experiment":
-                    (root / "experiments/EXP-001/experiment.json").write_text("[]", encoding="utf-8")
-                elif contract == "artifact":
-                    (root / "artifacts/manifest.jsonl").write_text("[]\n", encoding="utf-8")
-                else:
-                    (root / "evidence-index.json").write_text("[]", encoding="utf-8")
-                errors = self.errors_for(root)
-                self.assertTrue(any("expected object" in error for error in errors), errors)
+            for payload in ("[]", "null"):
+                with self.subTest(contract=contract, payload=payload), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    self.make_valid_run(root)
+                    if contract == "experiment":
+                        (root / "experiments/EXP-001/experiment.json").write_text(payload, encoding="utf-8")
+                    elif contract == "artifact":
+                        (root / "artifacts/manifest.jsonl").write_text(payload + "\n", encoding="utf-8")
+                    else:
+                        (root / "evidence-index.json").write_text(payload, encoding="utf-8")
+                    errors = self.errors_for(root)
+                    self.assertTrue(any("expected object" in error for error in errors), errors)
 
     def test_active_validation_requires_an_experiment_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -746,7 +750,7 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             experiment["status"] = "planned"
             write_json(path, experiment)
             errors = self.errors_for(root)
-            self.assertTrue(any("completed task owns a non-terminal experiment" in error for error in errors), errors)
+            self.assertTrue(any("completed may not own experiment status planned" in error for error in errors), errors)
             self.assertTrue(any("planned experiment must not have realized artifacts" in error for error in errors), errors)
 
     def test_cells_exactly_cover_seed_repetition_workload_matrix(self) -> None:
@@ -758,6 +762,17 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             experiment["seed_policy"] = {"mode": "fixed-list", "seeds": [1, 2], "repetitions": 2}
             write_json(path, experiment)
             self.assertTrue(any("uncovered cell/workload/seed/repetition" in error for error in self.errors_for(root)))
+
+    def test_large_repetition_count_is_validated_without_materializing_the_matrix(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            path = root / "experiments/EXP-001/experiment.json"
+            experiment = json.loads(path.read_text(encoding="utf-8"))
+            experiment["seed_policy"]["repetitions"] = 100_000_000
+            write_json(path, experiment)
+            errors = self.errors_for(root)
+            self.assertTrue(any("expected 100000000, found 1" in error for error in errors), errors)
 
     def test_verified_finding_requires_substantive_contract_fields(self) -> None:
         fields = ("title", "observation", "interpretation", "impact", "severity_rationale", "confidence_rationale")
@@ -785,6 +800,91 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             self.assertTrue(any("invalid evidence kind" in error for error in errors), errors)
             self.assertTrue(any("invalid evidence sensitivity" in error for error in errors), errors)
             self.assertTrue(any("requires an independent verifier" in error for error in errors), errors)
+
+    def test_cells_must_assign_exact_independent_variables_with_scalar_values(self) -> None:
+        assignments = (
+            {"unrelated-variable": "control"},
+            {"configuration": None},
+            {"configuration": ""},
+        )
+        for value in assignments:
+            with self.subTest(assignments=value), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.make_valid_run(root)
+                experiment_path = root / "experiments/EXP-001/experiment.json"
+                experiment = json.loads(experiment_path.read_text(encoding="utf-8"))
+                experiment["cells"][0]["variable_assignments"] = value
+                write_json(experiment_path, experiment)
+                manifest_path = root / "artifacts/manifest.jsonl"
+                artifact = json.loads(manifest_path.read_text(encoding="utf-8"))
+                artifact["experiment_contract_hash"] = canonical_contract_hash(experiment)
+                manifest_path.write_text(json.dumps(artifact) + "\n", encoding="utf-8")
+                errors = self.errors_for(root)
+                self.assertTrue(
+                    any("exactly match declared independent" in error or "non-null scalar" in error for error in errors),
+                    errors,
+                )
+
+    def test_task_and_experiment_status_matrix_is_enforced(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            task_path = root / "tasks/SR-002/task.json"
+            active = json.loads(task_path.read_text(encoding="utf-8"))
+            active["status"] = "cancelled"
+            write_json(task_path, active)
+            experiment_path = root / "experiments/EXP-001/experiment.json"
+            experiment = json.loads(experiment_path.read_text(encoding="utf-8"))
+            experiment["status"] = "running"
+            write_json(experiment_path, experiment)
+            errors = self.errors_for(root)
+            self.assertTrue(any("cancelled may not own experiment status running" in error for error in errors), errors)
+
+    def test_boolean_experiment_revisions_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            experiment_path = root / "experiments/EXP-001/experiment.json"
+            experiment = json.loads(experiment_path.read_text(encoding="utf-8"))
+            experiment["revision"] = True
+            write_json(experiment_path, experiment)
+            manifest_path = root / "artifacts/manifest.jsonl"
+            artifact = json.loads(manifest_path.read_text(encoding="utf-8"))
+            artifact["experiment_revision"] = True
+            artifact["experiment_contract_hash"] = canonical_contract_hash(experiment)
+            manifest_path.write_text(json.dumps(artifact) + "\n", encoding="utf-8")
+            errors = self.errors_for(root)
+            self.assertTrue(any("invalid experiment revision" in error for error in errors), errors)
+            self.assertTrue(any("positive integer" in error for error in errors), errors)
+
+    def test_experiment_storage_budget_must_fit_task_reservation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            experiment_path = root / "experiments/EXP-001/experiment.json"
+            experiment = json.loads(experiment_path.read_text(encoding="utf-8"))
+            experiment["resource_budget"]["storage_gb"] = 10**12
+            write_json(experiment_path, experiment)
+            self.assertTrue(any("storage_gb exceeds" in error for error in self.errors_for(root)))
+
+    def test_completed_experiment_rejects_unplanned_artifact_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            original_manifest = root / "artifacts/manifest.jsonl"
+            original = json.loads(original_manifest.read_text(encoding="utf-8"))
+            extra_path = root / "experiments/EXP-001/results/unplanned.log"
+            extra_path.write_text("unplanned but well-formed\n", encoding="utf-8")
+            extra = dict(original)
+            extra["artifact_id"] = "ART-UNPLANNED"
+            extra["path"] = "experiments/EXP-001/results/unplanned.log"
+            extra["hash"] = "sha256:" + hashlib.sha256(extra_path.read_bytes()).hexdigest()
+            original_manifest.write_text(
+                json.dumps(original) + "\n" + json.dumps(extra) + "\n",
+                encoding="utf-8",
+            )
+            errors = self.errors_for(root)
+            self.assertTrue(any("unplanned artifact IDs" in error for error in errors), errors)
 
 
 if __name__ == "__main__":

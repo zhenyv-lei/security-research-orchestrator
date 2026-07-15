@@ -60,7 +60,7 @@ For each experiment, record:
 - observables such as commits, exceptions, counters, traces, waveforms, latency distributions, or difftest events;
 - pass, fail, inconclusive, stop, and resource-exhaustion criteria.
 
-Use `assets/templates/experiment.json` to declare the matrix. Give every independent-variable assignment a unique `CELL-*` record, then realize the cell x workload x seed x repetition cross-product. Parallelize cells only when they do not share an exclusive simulator build, mutable checkpoint, FPGA image, hardware target, or output path. Keep each cell within one approved method class, and keep every experiment budget within the owning task's reservation and graph resources.
+Use `assets/templates/experiment.json` to declare the matrix. Name independent variables with stable identifiers, give every assignment a unique `CELL-*` record using exactly those keys and non-null scalar values, then realize the cell x workload x seed x repetition cross-product. Parallelize cells only when they do not share an exclusive simulator build, mutable checkpoint, FPGA image, hardware target, or output path. Keep each cell within one approved method class, and keep every experiment CPU, memory, wall-time, storage, and exclusive-resource budget within the owning task's reservation and graph resources.
 
 ### 4. Build and Calibration Gate
 

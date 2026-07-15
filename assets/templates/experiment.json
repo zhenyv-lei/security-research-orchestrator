@@ -6,7 +6,7 @@
   "revision": 1,
   "hypothesis": "",
   "variables": {
-    "independent": [],
+    "independent": ["configuration"],
     "dependent": [],
     "controlled": [],
     "nuisance": []
@@ -34,9 +34,16 @@
   "cells": [
     {
       "cell_id": "CELL-001",
-      "label": "",
+      "label": "control",
       "variable_assignments": {
-        "configuration": ""
+        "configuration": "control"
+      }
+    },
+    {
+      "cell_id": "CELL-002",
+      "label": "treatment",
+      "variable_assignments": {
+        "configuration": "treatment"
       }
     }
   ],

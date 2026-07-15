@@ -18,7 +18,9 @@ Every schema v3 task must set integer `schema_version: 3` and define:
 - a structured `safety` block with `purpose`, `task_class`, `capability_boundary`, `resource_scope`, `evidence_goal`, `active_actions`, `approval_ref`, `composition_dependencies`, and `safe_fallback`;
 - `status`, `attempts`, and `max_attempts`.
 
-For `microarchitecture-security`, also require `schema_version`, `phase`, `execution_mode`, `target_snapshot`, and `resource_requirements`. Use execution mode `read-only`, `passive-research`, `local-simulation`, `formal-execution`, `fpga`, or `silicon`; executable modes require `active_validation`, and hardware modes require A2. The task snapshot must match `scope.target_snapshot`, including repository, commit, dirty state, submodules, configuration, ISA/privilege assumptions, target class, toolchain, reference model, and workloads. Every exclusive simulator, FPGA, silicon target, licensed tool, mutable checkpoint, or build directory must appear in `resource_requirements.exclusive_resources` and in the run task graph.
+Every schema v3 run must give `scope.assets`, `scope.versions`, and `scope.environments` as non-empty unique string lists. A completed run must have a non-empty checkpoint and an empty `resume.next_actions` list.
+
+For `microarchitecture-security`, also require `schema_version`, `phase`, `execution_mode`, `target_snapshot`, and `resource_requirements`. Reserve CPU, memory, wall time, storage, and exclusive resources at task level. Use execution mode `read-only`, `passive-research`, `local-simulation`, `formal-execution`, `fpga`, or `silicon`; executable modes require `active_validation`, and hardware modes require A2. The task snapshot must match `scope.target_snapshot`, including repository, commit, dirty state, submodules, configuration, ISA/privilege assumptions, target class, toolchain, reference model, and workloads. Every exclusive simulator, FPGA, silicon target, licensed tool, mutable checkpoint, or build directory must appear in `resource_requirements.exclusive_resources` and in the run task graph.
 
 Reject a task if its objective is broad, its outputs overlap another worker, or success cannot be tested.
 
@@ -74,13 +76,13 @@ Schema v3 binds active work to the run approval packet: `active_validation` requ
 Use `assets/templates/experiment.json` only for an approved `active_validation` task. Require:
 
 - the same `approval_ref` as the task and run approval packet;
-- one falsifiable hypothesis and non-empty independent, dependent, and controlled variables;
+- one falsifiable hypothesis and non-empty dependent and controlled variables; independent variables may be empty only for a fixed reference check;
 - pinned target snapshot, workloads, controls, observables, seeds/repetitions, stop criteria, and resource budget;
-- explicit, uniquely labeled `cells` for each independent-variable assignment; realized artifacts must cover every cell x workload x seed x repetition coordinate;
+- stable identifier strings in `variables.independent`, plus uniquely labeled `cells` whose assignment keys exactly equal those identifiers and whose values are non-null scalars; a non-empty independent-variable set requires at least two distinct cells, while a fixed reference check uses one cell with an empty assignment; realized artifacts must cover every cell x workload x seed x repetition coordinate;
 - expected artifact IDs before execution;
 - a new `revision` whenever commands, target configuration, workload, seeds, instrumentation, or budget changes.
 
-Write results only under `experiments/<experiment-id>/results/`. Register each realized result in `artifacts/manifest.jsonl` using `assets/templates/artifact-record.json`. The producer must own the experiment; the record must carry the matching snapshot, experiment revision, canonical experiment-contract SHA-256, cell ID, integer seed, repetition index, and populated file SHA-256. Compute the contract hash from canonical sorted-key JSON excluding only mutable `status`. Planned experiments must not have realized artifacts. Completed experiments and artifact-backed evidence require the manifest; every completed cell needs at least one registered artifact.
+Write results only under `experiments/<experiment-id>/results/`. Register each realized result in `artifacts/manifest.jsonl` using `assets/templates/artifact-record.json`. The producer must own the experiment; the record must carry the matching snapshot, experiment revision, canonical experiment-contract SHA-256, cell ID, integer seed, repetition index, and populated file SHA-256. Compute the contract hash from canonical sorted-key JSON excluding only mutable `status`. Planned experiments must not have realized artifacts. Completed experiments and artifact-backed evidence require the manifest; every completed coordinate needs a registered artifact, and realized artifact IDs must exactly equal `expected_artifacts`.
 
 Artifact `kind` is one of `build_log`, `simulation_log`, `difftest`, `counter`, `trace`, `waveform`, `checkpoint`, `analysis`, `binary`, `config_snapshot`, `coverage`, `formal_log`, `metrics`, or `report`. Sensitivity is `public`, `internal`, `confidential`, or `restricted`; retention is `keep`, `review`, `delete-after-run`, or `delete-after-review`. `generated_at` is an ISO-8601 timestamp with a timezone.
 
