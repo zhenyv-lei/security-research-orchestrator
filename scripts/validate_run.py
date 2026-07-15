@@ -1896,7 +1896,7 @@ def validate_run(run_dir: Path) -> list[str]:
                     value = finding.get(field)
                     if not isinstance(value, list) or any(not is_non_empty_text(item) for item in value):
                         errors.append(f"finding {field} must be a list of non-empty strings in {finding_path}")
-                if verdict in {"verified", "corroborated"}:
+                if is_enum_value(verdict, {"verified", "corroborated"}):
                     for field in ("counter_evidence", "false_positive_hypotheses", "regression_checks"):
                         if not finding.get(field):
                             errors.append(f"{verdict} finding requires non-empty {field} in {finding_path}")
@@ -1993,7 +1993,7 @@ def validate_run(run_dir: Path) -> list[str]:
         missing = sorted(set(evidence_ids) - seen_evidence)
         if missing:
             errors.append(f"unknown evidence IDs in {finding_path}: {', '.join(missing)}")
-        if verdict in {"verified", "corroborated"}:
+        if is_enum_value(verdict, {"verified", "corroborated"}):
             verifier_task = task_records.get(verifier_task_id) if isinstance(verifier_task_id, str) else None
             verifier_evidence = [
                 evidence_id
@@ -2095,6 +2095,8 @@ def validate_run(run_dir: Path) -> list[str]:
             for fallback_id, fallback_task in task_records.items():
                 original_id = fallback_task.get("fallback_of")
                 if original_id is None:
+                    continue
+                if not isinstance(original_id, str):
                     continue
                 count = policy_fallback_links.count((original_id, fallback_id))
                 if count != 1:

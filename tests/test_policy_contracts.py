@@ -505,6 +505,22 @@ class OrchestratorRegressionTests(unittest.TestCase):
                     any("verified finding requires an independent verifier" in error for error in errors), errors
                 )
 
+    def test_malformed_finding_verdict_fails_closed_without_exception(self) -> None:
+        for verdict in ([], {}):
+            with self.subTest(verdict=verdict), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / "run"
+                context = task("SR-001")
+                write_run(root, run_state(["SR-001"]), [context])
+                task_dir = root / "tasks" / "SR-001"
+                (task_dir / "evidence.jsonl").write_text(
+                    json.dumps(evidence("SR-001", "EV-SR-001-01")) + "\n", encoding="utf-8"
+                )
+                (task_dir / "finding-001.json").write_text(
+                    json.dumps(finding("SR-001", ["EV-SR-001-01"], verdict, None)), encoding="utf-8"
+                )
+                errors = validate_run(root)
+                self.assertTrue(any("invalid finding verdict" in error for error in errors), errors)
+
     def test_valid_verified_finding_has_verifier_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "run"
@@ -859,6 +875,16 @@ class OrchestratorRegressionTests(unittest.TestCase):
                 task_path.write_text(json.dumps(context), encoding="utf-8")
                 errors = validate_run(root)
                 self.assertTrue(any("dependencies" in error or "dependency" in error for error in errors), errors)
+
+    def test_malformed_fallback_reference_fails_closed_without_exception(self) -> None:
+        for fallback_of in ([], {}):
+            with self.subTest(fallback_of=fallback_of), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / "run"
+                context = task("SR-001")
+                context["fallback_of"] = fallback_of
+                write_run(root, run_state(["SR-001"]), [context])
+                errors = validate_run(root)
+                self.assertTrue(any("malformed fallback_of" in error for error in errors), errors)
 
     def test_cosmetic_policy_fallback_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
