@@ -801,6 +801,9 @@ class OrchestratorRegressionTests(unittest.TestCase):
             "运行本地仿真并测量时延",
             "access the FPGA board",
             "start the local Verilator workload",
+            "boot the FPGA board and acquire counters",
+            "reset the silicon device",
+            "ｒｕｎ local simulation",
         )
         for action in actions:
             with self.subTest(action=action), tempfile.TemporaryDirectory() as temp:
@@ -864,8 +867,19 @@ class OrchestratorRegressionTests(unittest.TestCase):
             errors = validate_run(root)
             self.assertTrue(any("empty resume.next_actions" in error for error in errors), errors)
 
+    def test_exhausted_task_cannot_remain_retryable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            context = task("SR-001")
+            context["status"] = "retryable_error"
+            context["attempts"] = 2
+            context["max_attempts"] = 2
+            write_run(root, run_state(["SR-001"]), [context])
+            errors = validate_run(root)
+            self.assertTrue(any("exhausted its attempt budget" in error for error in errors), errors)
+
     def test_malformed_dependencies_fail_closed_without_exception(self) -> None:
-        for dependencies in (1, True, None):
+        for dependencies in (1, True, None, [{}], [[]]):
             with self.subTest(dependencies=dependencies), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp) / "run"
                 context = task("SR-001")
@@ -875,6 +889,51 @@ class OrchestratorRegressionTests(unittest.TestCase):
                 task_path.write_text(json.dumps(context), encoding="utf-8")
                 errors = validate_run(root)
                 self.assertTrue(any("dependencies" in error or "dependency" in error for error in errors), errors)
+
+    def test_unapproved_packet_fields_keep_their_declared_types(self) -> None:
+        for field, value in (("target", {}), ("owner", [])):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / "run"
+                context = task("SR-001")
+                state = run_state(["SR-001"])
+                state["active_testing_approval"][field] = value
+                write_run(root, state, [context])
+                errors = validate_run(root)
+                self.assertTrue(any(f"active_testing_approval.{field}" in error for error in errors), errors)
+
+    def test_conflict_requires_distinct_tasks_and_typed_resolution_fields(self) -> None:
+        malformed_conflicts = (
+            {
+                "conflict_id": "CF-001",
+                "task_ids": ["SR-001", "SR-001"],
+                "normalized_claim": "One duplicated task cannot form a conflict.",
+                "evidence_ids": [],
+                "status": "unresolved",
+                "verifier_task_id": None,
+                "resolution": "",
+                "limitations": ["fixture limitation"],
+            },
+            {
+                "conflict_id": "CF-002",
+                "task_ids": ["SR-001", "SR-002"],
+                "normalized_claim": "The fixture conflict has malformed metadata.",
+                "evidence_ids": [],
+                "status": "unresolved",
+                "verifier_task_id": None,
+                "resolution": {},
+                "limitations": "not a list",
+            },
+        )
+        for conflict in malformed_conflicts:
+            with self.subTest(conflict=conflict["conflict_id"]), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / "run"
+                first = task("SR-001")
+                second = task("SR-002", "state_inventory", ["SR-001"])
+                write_run(root, run_state(["SR-001", "SR-002"]), [first, second], conflicts=[conflict])
+                errors = validate_run(root)
+                self.assertTrue(
+                    any("distinct tasks" in error or "resolution must be" in error for error in errors), errors
+                )
 
     def test_malformed_fallback_reference_fails_closed_without_exception(self) -> None:
         for fallback_of in ([], {}):

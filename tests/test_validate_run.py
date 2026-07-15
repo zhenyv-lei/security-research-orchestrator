@@ -298,7 +298,7 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
                         "variable_assignments": {},
                     }
                 ],
-                "command_plan": ["run the approved local simulator"],
+                "command_plan": ["run one bounded local simulation"],
                 "expected_artifacts": ["ART-EXP-001-001"],
                 "acceptance_criteria": ["control reproduced"],
                 "inconclusive_criteria": ["run truncated"],
@@ -440,6 +440,25 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             state["scope"]["target_snapshot"]["commit"] = ""
             write_json(state_path, state)
             self.assertTrue(any("target_snapshot.commit" in error for error in self.errors_for(root)))
+
+    def test_snapshot_toolchain_and_task_phase_must_be_substantive(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            state_path = root / "run-state.json"
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["scope"]["target_snapshot"]["toolchain"] = [""]
+            write_json(state_path, state)
+            self.assertTrue(any("target_snapshot.toolchain" in error for error in self.errors_for(root)))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            task_path = root / "tasks/SR-002/task.json"
+            active = json.loads(task_path.read_text(encoding="utf-8"))
+            active["phase"] = []
+            write_json(task_path, active)
+            self.assertTrue(any("phase must be a non-empty string" in error for error in self.errors_for(root)))
 
     def test_cross_layer_snapshot_drift_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -890,6 +909,41 @@ class MicroarchitectureValidatorTests(unittest.TestCase):
             experiment["resource_budget"]["storage_gb"] = 10**12
             write_json(experiment_path, experiment)
             self.assertTrue(any("storage_gb exceeds" in error for error in self.errors_for(root)))
+
+    def test_non_finite_json_resource_values_are_rejected(self) -> None:
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.make_valid_run(root)
+                task_path = root / "tasks/SR-002/task.json"
+                active = json.loads(task_path.read_text(encoding="utf-8"))
+                active["resource_requirements"]["cpu"] = value
+                write_json(task_path, active)
+                errors = self.errors_for(root)
+                self.assertTrue(any("non-standard JSON numeric constant" in error for error in errors), errors)
+
+    def test_experiment_command_plan_is_bound_to_task_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            experiment_path = root / "experiments/EXP-001/experiment.json"
+            experiment = json.loads(experiment_path.read_text(encoding="utf-8"))
+            experiment["command_plan"] = ["connect to an unapproved external device and mutate it"]
+            write_json(experiment_path, experiment)
+            errors = self.errors_for(root)
+            self.assertTrue(any("task allowed_actions" in error for error in errors), errors)
+            self.assertTrue(any("unapproved or out-of-scope" in error for error in errors), errors)
+
+    def test_realized_artifact_must_fall_within_approval_time_window(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.make_valid_run(root)
+            manifest_path = root / "artifacts/manifest.jsonl"
+            artifact = json.loads(manifest_path.read_text(encoding="utf-8"))
+            artifact["generated_at"] = "2099-01-01T00:00:00Z"
+            manifest_path.write_text(json.dumps(artifact) + "\n", encoding="utf-8")
+            errors = self.errors_for(root)
+            self.assertTrue(any("outside its active approval time window" in error for error in errors), errors)
 
     def test_completed_experiment_rejects_unplanned_artifact_ids(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

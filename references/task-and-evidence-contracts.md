@@ -78,6 +78,7 @@ Use `assets/templates/experiment.json` only for an approved `active_validation` 
 - the same `approval_ref` as the task and run approval packet;
 - one falsifiable hypothesis and non-empty dependent and controlled variables; independent variables may be empty only for a fixed reference check;
 - pinned target snapshot, workloads, controls, observables, seeds/repetitions, stop criteria, and resource budget;
+- a `command_plan` whose entries are declared verbatim in both the owning task's `allowed_actions` and `safety.active_actions` before approval;
 - stable identifier strings in `variables.independent`, plus uniquely labeled `cells` whose assignment keys exactly equal those identifiers and whose values are non-null scalars; a non-empty independent-variable set requires at least two distinct cells, while a fixed reference check uses one cell with an empty assignment; realized artifacts must cover every cell x workload x seed x repetition coordinate;
 - expected artifact IDs before execution;
 - a new `revision` whenever commands, target configuration, workload, seeds, instrumentation, or budget changes.
