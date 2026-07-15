@@ -1,0 +1,48 @@
+{
+  "schema_version": 3,
+  "experiment_id": "EXP-001",
+  "task_id": "SR-005",
+  "approval_ref": "",
+  "revision": 1,
+  "hypothesis": "",
+  "variables": {
+    "independent": [],
+    "dependent": [],
+    "controlled": [],
+    "nuisance": []
+  },
+  "target_snapshot": {
+    "repository": "",
+    "commit": "",
+    "dirty": false,
+    "submodules": [],
+    "rtl_config": "",
+    "isa_privilege_assumptions": [],
+    "target_class": "cycle-simulator",
+    "toolchain": [],
+    "reference_model": null,
+    "workloads": []
+  },
+  "workloads": [],
+  "controls": [],
+  "observables": [],
+  "seed_policy": {
+    "mode": "fixed-list",
+    "seeds": [],
+    "repetitions": 1
+  },
+  "command_plan": [],
+  "expected_artifacts": [],
+  "acceptance_criteria": [],
+  "inconclusive_criteria": [],
+  "resource_exhaustion_criteria": [],
+  "stop_conditions": [],
+  "resource_budget": {
+    "cpu": null,
+    "memory_gb": null,
+    "wall_time_minutes": null,
+    "storage_gb": null,
+    "exclusive_resources": []
+  },
+  "status": "planned"
+}

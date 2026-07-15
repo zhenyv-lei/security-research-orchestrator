@@ -41,14 +41,17 @@ Do not parallelize before `context_map` identifies stable component boundaries.
 
 Use this defensive profile for hardware predictors, caches, queues, allocators, schedulers, runtime caches, or other state shared across tenants or contexts.
 
-1. `context_map`: identify the effective configuration, instance count, ownership, context boundary, and reset/flush events.
+For RTL, simulator, FPGA, silicon, timing, or quantitative work, also load `microarchitecture-research.md`, set `research_profile` to `microarchitecture-security`, and pin the target snapshot before component tasks are dispatched.
+
+1. `context_map`: identify the effective commit/configuration, instance count, ownership, context boundary, reset/flush events, target class, tools, and workloads.
 2. `state_inventory`: assign one worker per independent resource family; record storage, lifecycle, identity inputs, pending updates, and replacement/adaptive state.
 3. `boundary_trace`: trace context, privilege, tenant, ASID/VMID, epoch, fence, reset, and invalidate signals from producer to every state owner.
 4. `control_review`: map partitioning, tagging, flushing, draining, save/restore, and observability controls.
 5. `verification`: independently test persistence and isolation claims against source and configuration counterexamples.
 6. `mitigation`: cover main entries plus history, replacement, thresholds, region metadata, and pending writes; define regression properties.
-7. `active_validation`: create only after an explicit approval packet; never embed dynamic method construction in `state_inventory` tasks.
-8. `synthesis`: report state facts, verified isolation gaps, blocked validation, and mitigations without reconstructing unavailable operational steps.
+7. `active_validation`: create only after an explicit approval packet; bind every calibration or experiment contract to that task and preserve controls, seeds, resource budget, raw artifacts, and hashes.
+8. `evidence_normalization`: link raw artifacts to sourced observations and keep architectural, microarchitectural, security, and performance claims distinct.
+9. `synthesis`: report state facts, verified isolation gaps, reproducibility status, blocked validation, and mitigations without reconstructing unavailable operational steps.
 
 Do not assign a worker a combined request such as "map the resource, derive a collision, build a probe, and rank exploitability." Those are different task classes and may not all be authorized or necessary.
 

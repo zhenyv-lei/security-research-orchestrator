@@ -1,4 +1,4 @@
 interface:
   display_name: "安全研究编排器"
-  short_description: "面向授权安全研究的安全拆分、独立验证、恢复与证据汇总"
-  default_prompt: "Use $security-research-orchestrator to decompose and coordinate this authorized defensive security research with evidence-bearing tasks and safety-gated fallbacks."
+  short_description: "面向授权安全与微架构研究的安全拆分、可复现实验、独立验证和恢复"
+  default_prompt: "Use $security-research-orchestrator to coordinate this authorized defensive security or microarchitecture research with bounded tasks, approval-gated experiments, and evidence-backed verification."

@@ -4,6 +4,10 @@
 
 ## Scope and Authorization
 
+## Design Snapshot and Reproducibility
+
+## Experiment Matrix and Artifact Coverage
+
 ## Method and Coverage
 
 ## Verified Findings

@@ -14,18 +14,22 @@ Persist state after every task transition and before any retry. Treat `run-state
 | `insufficient_evidence` | Acceptance criteria unmet | One bounded evidence pass | `candidate` or `blocked` |
 | `conflict` | Material incompatible findings | Fresh independent verifier | `incomplete` plus a conflict record when disagreement remains |
 | `policy` | Safety or policy refusal | Never retry the same objective | `policy_blocked` |
+| `resource_exhaustion` | Build, simulation, storage, or hardware budget exceeded | Retry the identical experiment only within its recorded budget | `blocked_technical` |
+| `snapshot_drift` | Commit, RTL config, target, toolchain, workload, or seed plan changed | Do not retry under the old record; create a new revision | `incomplete` |
+| `reference_mismatch` | Difftest, assertion, waveform, or trusted model disagrees | Preserve both artifacts and assign independent triage | `incomplete` |
 
 ## Resume Procedure
 
 1. Load `run-state.json` and validate it.
 2. If it uses schema v1 or v2, preserve a snapshot, migrate its contracts to v3, and pass strict-v3 preflight before dispatching runnable work.
 3. Verify referenced task and evidence artifacts exist.
-4. Recompute runnable tasks from dependencies and terminal states.
-5. Do not reopen completed tasks unless their evidence became invalid.
-6. Restart only retryable tasks within their attempt budget.
-7. Route missing input, authorization, and policy blocks to the manager.
-8. Continue independent safe tasks.
-9. Record the resume timestamp and reason.
+4. For microarchitecture runs, verify the target snapshot, task graph, experiment revisions, artifact manifest paths, and hashes before reusing results.
+5. Recompute runnable tasks from dependencies and terminal states.
+6. Do not reopen completed tasks unless their evidence became invalid.
+7. Restart only retryable tasks within their attempt and resource budgets.
+8. Route missing input, authorization, and policy blocks to the manager.
+9. Continue independent safe tasks.
+10. Record the resume timestamp and reason.
 
 ## Safe Fallback Rules
 

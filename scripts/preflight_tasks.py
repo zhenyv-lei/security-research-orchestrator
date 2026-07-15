@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -13,6 +14,10 @@ from validate_run import validate_run
 
 
 SINGLE_RESOURCE_CLASSES = {"state_inventory", "boundary_trace"}
+ACTIVE_ACTION_PATTERN = re.compile(
+    r"\b(run|execute|simulate|probe|scan|measure|instrument|mutate|flash|program|access)\b",
+    re.IGNORECASE,
+)
 
 
 def load_json(path: Path) -> dict:
@@ -136,6 +141,12 @@ def preflight(run_dir: Path, strict_v2: bool = False, strict_v3: bool = False) -
             errors.append(f"{task_id} has no stable input artifacts")
         if not task["expected_outputs"]:
             errors.append(f"{task_id} has no expected outputs")
+        if safety.get("capability_boundary") == "non_operational":
+            for action in task.get("allowed_actions", []):
+                if isinstance(action, str) and ACTIVE_ACTION_PATTERN.search(action):
+                    warnings.append(
+                        f"{task_id} non_operational allowed_action may describe active work: {action}"
+                    )
         if task_id not in context_ids and context_ids and not has_dependency_path(task_id, context_ids, tasks):
             warnings.append(f"{task_id} has no dependency path to a context_map task")
 

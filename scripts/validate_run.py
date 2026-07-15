@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -27,6 +28,7 @@ RUN_REQUIRED = {
 }
 RUN_V2_REQUIRED = {"schema_version", "policy_event_log"}
 RUN_V3_REQUIRED = {"schema_version", "policy_event_log", "active_testing_approval", "conflicts_file", "preflight_exceptions"}
+MICROARCH_RUN_REQUIRED = {"research_profile", "authorization", "task_graph", "artifact_roots", "resume"}
 ACTIVE_APPROVAL_REQUIRED = {
     "approval_id",
     "approved",
@@ -74,6 +76,7 @@ TASK_SAFETY_REQUIRED = {
     "safe_fallback",
 }
 TASK_SAFETY_V3_REQUIRED = {"approval_ref"}
+MICROARCH_TASK_REQUIRED = {"schema_version", "phase", "execution_mode", "target_snapshot", "resource_requirements"}
 POLICY_EVENT_REQUIRED = {
     "event_id",
     "task_id",
@@ -119,6 +122,44 @@ FINDING_REQUIRED = {
     "remediation",
     "limitations",
 }
+EXPERIMENT_REQUIRED = {
+    "schema_version",
+    "experiment_id",
+    "task_id",
+    "approval_ref",
+    "revision",
+    "hypothesis",
+    "variables",
+    "target_snapshot",
+    "workloads",
+    "controls",
+    "observables",
+    "seed_policy",
+    "command_plan",
+    "expected_artifacts",
+    "acceptance_criteria",
+    "inconclusive_criteria",
+    "resource_exhaustion_criteria",
+    "stop_conditions",
+    "resource_budget",
+    "status",
+}
+ARTIFACT_REQUIRED = {
+    "schema_version",
+    "artifact_id",
+    "producer_task_id",
+    "experiment_id",
+    "kind",
+    "path",
+    "hash",
+    "target_snapshot",
+    "tool_versions",
+    "workload_ids",
+    "seed",
+    "generated_at",
+    "sensitivity",
+    "retention",
+}
 TERMINAL_TASK_STATUSES = {
     "completed",
     "incomplete",
@@ -129,6 +170,17 @@ TERMINAL_TASK_STATUSES = {
     "cancelled",
 }
 ALL_TASK_STATUSES = TERMINAL_TASK_STATUSES | {"pending", "running", "retryable_error"}
+RUN_STATUSES = {"planning", "running", "paused", "completed", "cancelled"}
+EXPERIMENT_STATUSES = {
+    "planned",
+    "calibrating",
+    "running",
+    "completed",
+    "inconclusive",
+    "blocked_technical",
+    "policy_blocked",
+    "cancelled",
+}
 VERDICTS = {"verified", "corroborated", "candidate", "rejected", "blocked"}
 TASK_CLASSES = {
     "context_map",
@@ -146,8 +198,44 @@ TASK_CLASSES = {
 CAPABILITY_BOUNDARIES = {"non_operational", "active_authorized"}
 AUTHORIZATION_TIERS = {"A0", "A1", "A2"}
 CONFLICT_STATUSES = {"open", "resolved", "unresolved"}
+TARGET_CLASSES = {"static-rtl", "formal-model", "cycle-simulator", "fpga", "silicon", "software"}
+MICROARCH_EXECUTION_MODES = {
+    "read-only",
+    "passive-research",
+    "local-simulation",
+    "formal-execution",
+    "fpga",
+    "silicon",
+}
+EXECUTION_TARGET_CLASSES = {
+    "local-simulation": {"cycle-simulator", "software"},
+    "formal-execution": {"formal-model"},
+    "fpga": {"fpga"},
+    "silicon": {"silicon"},
+}
 TASK_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+EXPERIMENT_ID_PATTERN = re.compile(r"EXP-[A-Za-z0-9][A-Za-z0-9._-]{0,123}\Z")
 TEXT_OUTPUT_SUFFIXES = {".json", ".jsonl", ".md", ".txt", ".yaml", ".yml"}
+MICROARCH_PROFILE = "microarchitecture-security"
+SNAPSHOT_IDENTITY_FIELDS = (
+    "repository",
+    "commit",
+    "dirty",
+    "submodules",
+    "rtl_config",
+    "isa_privilege_assumptions",
+    "target_class",
+    "toolchain",
+    "reference_model",
+    "workloads",
+)
+FINAL_REQUIRED_HEADINGS = {
+    "## Scope and Authorization",
+    "## Design Snapshot and Reproducibility",
+    "## Experiment Matrix and Artifact Coverage",
+    "## Conflicts, Blocks, and Limitations",
+    "## Claim-to-Evidence Matrix",
+}
 
 
 def load_json(path: Path, errors: list[str]) -> Any:
@@ -167,6 +255,465 @@ def require_keys(data: Any, required: set[str], path: Path, errors: list[str]) -
     missing = sorted(required - data.keys())
     if missing:
         errors.append(f"missing keys in {path}: {', '.join(missing)}")
+
+
+def snapshot_identity(snapshot: Any) -> Optional[tuple[str, ...]]:
+    if not isinstance(snapshot, dict):
+        return None
+    return tuple(
+        json.dumps(snapshot.get(field), sort_keys=True, separators=(",", ":"))
+        for field in SNAPSHOT_IDENTITY_FIELDS
+    )
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return "sha256:" + digest.hexdigest()
+
+
+def validate_target_snapshot(
+    snapshot: Any,
+    path: Path,
+    errors: list[str],
+    *,
+    require_pinned: bool,
+) -> None:
+    if not isinstance(snapshot, dict):
+        errors.append(f"target_snapshot must be an object in {path}")
+        return
+    if snapshot.get("target_class") not in TARGET_CLASSES:
+        errors.append(f"invalid target_class in {path}: {snapshot.get('target_class')}")
+    if require_pinned:
+        for field in ("repository", "commit", "rtl_config"):
+            value = snapshot.get(field)
+            if not isinstance(value, str) or not value.strip():
+                errors.append(f"microarchitecture profile requires target_snapshot.{field} in {path}")
+        if not isinstance(snapshot.get("dirty"), bool):
+            errors.append(f"microarchitecture profile requires boolean target_snapshot.dirty in {path}")
+        for field in ("submodules", "isa_privilege_assumptions", "toolchain", "workloads"):
+            value = snapshot.get(field)
+            if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+                errors.append(f"microarchitecture profile requires target_snapshot.{field} as a string list in {path}")
+        if not snapshot.get("toolchain"):
+            errors.append(f"microarchitecture profile requires a pinned target_snapshot.toolchain in {path}")
+        if snapshot.get("target_class") != "static-rtl" and not snapshot.get("workloads"):
+            errors.append(f"executable target requires target_snapshot.workloads in {path}")
+
+
+def validate_microarchitecture_state(
+    state: dict[str, Any],
+    state_path: Path,
+    task_ids: list[str],
+    errors: list[str],
+) -> Any:
+    require_keys(state, MICROARCH_RUN_REQUIRED, state_path, errors)
+    scope = state.get("scope")
+    run_snapshot = scope.get("target_snapshot") if isinstance(scope, dict) else None
+    validate_target_snapshot(run_snapshot, state_path, errors, require_pinned=True)
+
+    authorization = state.get("authorization")
+    authorization_fields = {
+        "owner",
+        "evidence",
+        "time_window",
+        "method_classes",
+        "rate_limits",
+        "rollback_plan",
+        "data_handling",
+        "output_audience",
+    }
+    if not isinstance(authorization, dict) or not authorization_fields.issubset(authorization):
+        errors.append(f"authorization packet is incomplete in {state_path}")
+
+    artifact_roots = state.get("artifact_roots")
+    expected_roots = {"tasks": "tasks", "experiments": "experiments", "artifacts": "artifacts"}
+    if not isinstance(artifact_roots, dict) or any(artifact_roots.get(key) != value for key, value in expected_roots.items()):
+        errors.append(f"microarchitecture artifact_roots must use tasks, experiments, and artifacts in {state_path}")
+
+    resume = state.get("resume")
+    resume_lists = {"completed_tasks", "retryable_tasks", "blocked_tasks", "next_actions"}
+    if not isinstance(resume, dict) or not resume_lists.issubset(resume):
+        errors.append(f"resume must define checkpoint and task/action lists in {state_path}")
+    elif any(
+        not isinstance(resume.get(key), list) or any(item not in task_ids for item in resume.get(key, []))
+        for key in ("completed_tasks", "retryable_tasks", "blocked_tasks")
+    ):
+        errors.append(f"resume contains an unknown or malformed task ID in {state_path}")
+    return run_snapshot
+
+
+def validate_task_graph(
+    state: dict[str, Any],
+    tasks: dict[str, dict[str, Any]],
+    state_path: Path,
+    errors: list[str],
+) -> None:
+    graph = state.get("task_graph")
+    if not isinstance(graph, dict):
+        errors.append(f"task_graph must be an object in {state_path}")
+        return
+    for field in ("edges", "waves", "exclusive_resources"):
+        if not isinstance(graph.get(field), list):
+            errors.append(f"task_graph.{field} must be a list in {state_path}")
+
+    task_ids = set(tasks)
+    parsed_edges: set[tuple[str, str]] = set()
+    for edge in graph.get("edges", []) if isinstance(graph.get("edges"), list) else []:
+        if (
+            not isinstance(edge, list)
+            or len(edge) != 2
+            or any(not isinstance(item, str) or item not in task_ids for item in edge)
+        ):
+            errors.append(f"invalid task graph edge in {state_path}: {edge}")
+            continue
+        parsed_edges.add((edge[0], edge[1]))
+    expected_edges = {
+        (dependency, task_id)
+        for task_id, task in tasks.items()
+        for dependency in task.get("dependencies", [])
+        if isinstance(dependency, str) and dependency in task_ids
+    }
+    if parsed_edges != expected_edges:
+        errors.append("task_graph.edges must exactly match task dependencies")
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(task_id: str) -> None:
+        if task_id in visiting:
+            errors.append(f"task dependency cycle includes: {task_id}")
+            return
+        if task_id in visited:
+            return
+        visiting.add(task_id)
+        for dependency in tasks[task_id].get("dependencies", []):
+            if isinstance(dependency, str) and dependency in tasks:
+                visit(dependency)
+        visiting.remove(task_id)
+        visited.add(task_id)
+
+    for task_id in tasks:
+        visit(task_id)
+
+    wave_index: dict[str, int] = {}
+    declared_by_tasks: set[str] = set()
+    for index, wave in enumerate(graph.get("waves", []) if isinstance(graph.get("waves"), list) else []):
+        if not isinstance(wave, list):
+            errors.append(f"task graph wave {index} must be a list")
+            continue
+        wave_resources: set[str] = set()
+        for task_id in wave:
+            if not isinstance(task_id, str) or task_id not in task_ids:
+                errors.append(f"unknown task in wave {index}: {task_id}")
+                continue
+            if task_id in wave_index:
+                errors.append(f"task appears in multiple waves: {task_id}")
+            wave_index[task_id] = index
+            requirements = tasks[task_id].get("resource_requirements", {})
+            resources = requirements.get("exclusive_resources", []) if isinstance(requirements, dict) else []
+            for resource in resources if isinstance(resources, list) else []:
+                if not isinstance(resource, str) or not resource.strip():
+                    errors.append(f"invalid exclusive resource for {task_id} in wave {index}")
+                    continue
+                if resource in wave_resources:
+                    errors.append(f"exclusive resource {resource} is shared in wave {index}")
+                wave_resources.add(resource)
+                declared_by_tasks.add(resource)
+    if task_ids and set(wave_index) != task_ids:
+        errors.append("task_graph.waves must schedule every task exactly once")
+    for dependency, dependent in expected_edges:
+        if dependency in wave_index and dependent in wave_index and wave_index[dependency] >= wave_index[dependent]:
+            errors.append(f"dependency {dependency} must precede {dependent} in task_graph.waves")
+    graph_resources = graph.get("exclusive_resources", [])
+    if not isinstance(graph_resources, list) or any(not isinstance(item, str) for item in graph_resources):
+        errors.append("task_graph.exclusive_resources must be a list of strings")
+    elif set(graph_resources) != declared_by_tasks:
+        errors.append("task_graph.exclusive_resources must equal the resources declared by tasks")
+
+
+def validate_microarchitecture_artifacts(
+    run_dir: Path,
+    state: dict[str, Any],
+    run_snapshot: Any,
+    tasks: dict[str, dict[str, Any]],
+    evidence_artifact_refs: list[tuple[Path, str]],
+    seen_evidence: set[str],
+    errors: list[str],
+) -> None:
+    run_root = run_dir.resolve()
+    experiments: dict[str, dict[str, Any]] = {}
+    completed_experiments: set[str] = set()
+    expected_artifacts_by_experiment: list[tuple[Path, str, list[str]]] = []
+    experiments_root = run_root / "experiments"
+
+    if experiments_root.exists():
+        if experiments_root.resolve() != experiments_root:
+            errors.append("experiments root must not be a symlink")
+        for entry in experiments_root.iterdir():
+            if not entry.is_dir() or entry.is_symlink() or not (entry / "experiment.json").is_file():
+                errors.append(f"unexpected or incomplete experiment entry: {entry}")
+        for experiment_path in sorted(experiments_root.glob("*/experiment.json")):
+            if experiment_path.resolve() != experiment_path:
+                errors.append(f"experiment contract escapes its owned directory: {experiment_path}")
+                continue
+            experiment = load_json(experiment_path, errors)
+            if experiment is None:
+                continue
+            require_keys(experiment, EXPERIMENT_REQUIRED, experiment_path, errors)
+            if experiment.get("schema_version") != 3:
+                errors.append(f"experiment must use schema_version 3 in {experiment_path}")
+            experiment_id = experiment.get("experiment_id")
+            if (
+                not isinstance(experiment_id, str)
+                or not EXPERIMENT_ID_PATTERN.fullmatch(experiment_id)
+                or experiment_path.parent.name != experiment_id
+            ):
+                errors.append(f"invalid or misplaced experiment_id in {experiment_path}: {experiment_id}")
+                continue
+            if experiment_id in experiments:
+                errors.append(f"duplicate experiment_id: {experiment_id}")
+                continue
+            experiments[experiment_id] = experiment
+
+            task_id = experiment.get("task_id")
+            task = tasks.get(task_id) if isinstance(task_id, str) else None
+            if task is None:
+                errors.append(f"unknown experiment task in {experiment_path}")
+            else:
+                safety = task.get("safety", {})
+                approval = state.get("active_testing_approval", {})
+                if not isinstance(approval, dict):
+                    approval = {}
+                approved_task_ids = approval.get("approved_task_ids", [])
+                if not isinstance(approved_task_ids, list):
+                    approved_task_ids = []
+                if (
+                    safety.get("task_class") != "active_validation"
+                    or safety.get("capability_boundary") != "active_authorized"
+                    or experiment.get("approval_ref") != safety.get("approval_ref")
+                    or experiment.get("approval_ref") != approval.get("approval_id")
+                    or task_id not in approved_task_ids
+                ):
+                    errors.append(f"experiment is not bound to an approved active_validation task in {experiment_path}")
+
+            if experiment.get("status") not in EXPERIMENT_STATUSES:
+                errors.append(f"invalid experiment status in {experiment_path}: {experiment.get('status')}")
+            if not isinstance(experiment.get("revision"), int) or experiment.get("revision", 0) < 1:
+                errors.append(f"invalid experiment revision in {experiment_path}")
+            if not isinstance(experiment.get("hypothesis"), str) or not experiment.get("hypothesis").strip():
+                errors.append(f"experiment hypothesis must be non-empty in {experiment_path}")
+
+            variables = experiment.get("variables")
+            variable_fields = {"independent", "dependent", "controlled", "nuisance"}
+            if not isinstance(variables, dict) or not variable_fields.issubset(variables):
+                errors.append(f"invalid experiment variables in {experiment_path}")
+            elif any(not isinstance(variables[field], list) for field in variable_fields):
+                errors.append(f"experiment variable groups must be lists in {experiment_path}")
+            elif any(not variables[field] for field in ("independent", "dependent", "controlled")):
+                errors.append(
+                    f"experiment independent, dependent, and controlled variables must be non-empty in {experiment_path}"
+                )
+
+            list_fields = (
+                "workloads",
+                "controls",
+                "observables",
+                "command_plan",
+                "expected_artifacts",
+                "acceptance_criteria",
+                "inconclusive_criteria",
+                "resource_exhaustion_criteria",
+                "stop_conditions",
+            )
+            for field in list_fields:
+                value = experiment.get(field)
+                if not isinstance(value, list) or not value or any(
+                    not isinstance(item, str) or not item.strip() for item in value
+                ):
+                    errors.append(f"experiment {field} must be a non-empty list in {experiment_path}")
+
+            seed_policy = experiment.get("seed_policy")
+            if (
+                not isinstance(seed_policy, dict)
+                or not isinstance(seed_policy.get("repetitions"), int)
+                or seed_policy.get("repetitions", 0) < 1
+            ):
+                errors.append(f"invalid seed policy in {experiment_path}")
+            elif seed_policy.get("mode") == "fixed-list" and not seed_policy.get("seeds"):
+                errors.append(f"fixed-list seed policy requires at least one seed in {experiment_path}")
+            elif seed_policy.get("mode") == "fixed-list" and (
+                not isinstance(seed_policy.get("seeds"), list)
+                or any(not isinstance(seed, int) for seed in seed_policy.get("seeds", []))
+                or len(seed_policy.get("seeds", [])) != len(set(seed_policy.get("seeds", [])))
+            ):
+                errors.append(f"fixed-list seed policy requires unique integer seeds in {experiment_path}")
+            elif seed_policy.get("mode") not in {"fixed-list", "deterministic"}:
+                errors.append(f"unsupported seed policy mode in {experiment_path}: {seed_policy.get('mode')}")
+
+            budget = experiment.get("resource_budget")
+            budget_fields = {"cpu", "memory_gb", "wall_time_minutes", "storage_gb", "exclusive_resources"}
+            if not isinstance(budget, dict) or not budget_fields.issubset(budget):
+                errors.append(f"invalid experiment resource_budget in {experiment_path}")
+            elif (
+                not isinstance(budget.get("exclusive_resources"), list)
+                or any(not isinstance(item, str) or not item.strip() for item in budget.get("exclusive_resources", []))
+                or any(
+                    value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0)
+                    for value in (budget.get("cpu"), budget.get("memory_gb"), budget.get("wall_time_minutes"), budget.get("storage_gb"))
+                )
+            ):
+                errors.append(f"malformed experiment resource_budget in {experiment_path}")
+            experiment_snapshot = experiment.get("target_snapshot")
+            validate_target_snapshot(experiment_snapshot, experiment_path, errors, require_pinned=True)
+            if snapshot_identity(experiment_snapshot) != snapshot_identity(run_snapshot):
+                errors.append(f"experiment target snapshot differs from run snapshot in {experiment_path}")
+            if isinstance(experiment_snapshot, dict) and experiment_snapshot.get("dirty") is True:
+                errors.append(f"executable experiment requires a clean target snapshot in {experiment_path}")
+            if isinstance(experiment_snapshot, dict) and experiment.get("workloads") != experiment_snapshot.get("workloads"):
+                errors.append(f"experiment workloads differ from target snapshot in {experiment_path}")
+
+            expected = experiment.get("expected_artifacts")
+            if experiment.get("status") == "completed":
+                completed_experiments.add(experiment_id)
+                if isinstance(expected, list):
+                    expected_artifacts_by_experiment.append(
+                        (experiment_path, experiment_id, [item for item in expected if isinstance(item, str)])
+                    )
+
+    artifact_ids: set[str] = set()
+    artifact_experiments: dict[str, Any] = {}
+    registered_artifact_paths: set[Path] = set()
+    artifact_path_owners: dict[Path, str] = {}
+    manifest_path = run_root / "artifacts" / "manifest.jsonl"
+    if manifest_path.exists():
+        if manifest_path.resolve() != manifest_path:
+            errors.append("artifact manifest must not be a symlink")
+        for line_no, line in enumerate(manifest_path.read_text(encoding="utf-8").splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                artifact = json.loads(line)
+            except json.JSONDecodeError as exc:
+                errors.append(f"invalid JSONL {manifest_path}:{line_no}: {exc}")
+                continue
+            require_keys(artifact, ARTIFACT_REQUIRED, manifest_path, errors)
+            if artifact.get("schema_version") != 3:
+                errors.append(f"artifact must use schema_version 3 at {manifest_path}:{line_no}")
+            artifact_id = artifact.get("artifact_id")
+            if not isinstance(artifact_id, str) or not artifact_id.strip() or artifact_id in artifact_ids:
+                errors.append(f"invalid or duplicate artifact_id at {manifest_path}:{line_no}")
+            else:
+                artifact_ids.add(artifact_id)
+                artifact_experiments[artifact_id] = artifact.get("experiment_id")
+
+            producer = artifact.get("producer_task_id")
+            if producer not in tasks:
+                errors.append(f"unknown artifact producer at {manifest_path}:{line_no}")
+            experiment_id = artifact.get("experiment_id")
+            experiment = experiments.get(experiment_id) if isinstance(experiment_id, str) else None
+            if experiment is None:
+                errors.append(f"unknown artifact experiment at {manifest_path}:{line_no}")
+            elif producer != experiment.get("task_id"):
+                errors.append(f"artifact producer differs from experiment owner at {manifest_path}:{line_no}")
+
+            artifact_path_value = artifact.get("path")
+            artifact_path = resolve_run_path(run_root, artifact_path_value, f"artifact path at {manifest_path}:{line_no}", errors)
+            if artifact_path is not None:
+                owned_root = run_root / "experiments" / str(experiment_id) / "results"
+                if artifact_path != owned_root and owned_root not in artifact_path.parents:
+                    errors.append(f"artifact path is outside experiment ownership at {manifest_path}:{line_no}")
+                if not artifact_path.is_file():
+                    errors.append(f"manifest artifact does not exist at {manifest_path}:{line_no}: {artifact_path_value}")
+                else:
+                    if artifact_path in artifact_path_owners:
+                        errors.append(
+                            f"artifact path is registered by multiple IDs at {manifest_path}:{line_no}: "
+                            f"{artifact_path_owners[artifact_path]} and {artifact_id}"
+                        )
+                    elif isinstance(artifact_id, str):
+                        artifact_path_owners[artifact_path] = artifact_id
+                    registered_artifact_paths.add(artifact_path)
+
+            hash_value = artifact.get("hash")
+            if not isinstance(hash_value, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", hash_value):
+                errors.append(f"artifact requires a populated sha256 hash at {manifest_path}:{line_no}")
+            elif artifact_path is not None and artifact_path.is_file() and file_sha256(artifact_path) != hash_value:
+                errors.append(f"artifact hash mismatch at {manifest_path}:{line_no}")
+            artifact_snapshot = artifact.get("target_snapshot")
+            validate_target_snapshot(artifact_snapshot, manifest_path, errors, require_pinned=True)
+            if snapshot_identity(artifact_snapshot) != snapshot_identity(run_snapshot):
+                errors.append(f"artifact target snapshot differs from run snapshot at {manifest_path}:{line_no}")
+            if isinstance(artifact_snapshot, dict) and artifact_snapshot.get("dirty") is True:
+                errors.append(f"generated artifact requires a clean target snapshot at {manifest_path}:{line_no}")
+            tool_versions = artifact.get("tool_versions")
+            workload_ids = artifact.get("workload_ids")
+            if not isinstance(tool_versions, list) or not tool_versions or any(
+                not isinstance(item, str) for item in tool_versions
+            ):
+                errors.append(f"artifact tool_versions must be a non-empty string list at {manifest_path}:{line_no}")
+            elif isinstance(artifact_snapshot, dict) and tool_versions != artifact_snapshot.get("toolchain"):
+                errors.append(f"artifact tool_versions differ from target snapshot at {manifest_path}:{line_no}")
+            if not isinstance(workload_ids, list) or not workload_ids or any(
+                not isinstance(item, str) for item in workload_ids
+            ):
+                errors.append(f"artifact workload_ids must be a non-empty string list at {manifest_path}:{line_no}")
+            elif isinstance(artifact_snapshot, dict) and workload_ids != artifact_snapshot.get("workloads"):
+                errors.append(f"artifact workload_ids differ from target snapshot at {manifest_path}:{line_no}")
+            if not isinstance(artifact.get("generated_at"), str) or not artifact.get("generated_at").strip():
+                errors.append(f"artifact generated_at must be non-empty at {manifest_path}:{line_no}")
+
+    for experiment_path, experiment_id, expected in expected_artifacts_by_experiment:
+        missing = sorted(set(expected) - artifact_ids)
+        if missing:
+            errors.append(f"unknown expected artifact IDs in {experiment_path}: {', '.join(missing)}")
+        for artifact_id in set(expected) & artifact_ids:
+            if artifact_experiments.get(artifact_id) != experiment_id:
+                errors.append(f"artifact {artifact_id} is owned by a different experiment than {experiment_id}")
+
+    if experiments_root.exists():
+        for results_root in experiments_root.glob("*/results"):
+            if results_root.is_symlink():
+                errors.append(f"experiment results root must not be a symlink: {results_root}")
+                continue
+            for result_path in results_root.rglob("*"):
+                if result_path.is_file() and result_path.resolve() not in registered_artifact_paths:
+                    errors.append(f"unregistered experiment artifact: {result_path}")
+
+    for evidence_path, artifact_id in evidence_artifact_refs:
+        if artifact_id not in artifact_ids:
+            errors.append(f"unknown artifact ID referenced in {evidence_path}: {artifact_id}")
+    if (completed_experiments or evidence_artifact_refs) and not manifest_path.is_file():
+        errors.append("completed experiments or artifact-backed evidence require artifacts/manifest.jsonl")
+
+    if state.get("status") == "completed":
+        evidence_index_path = run_root / "evidence-index.json"
+        evidence_index = load_json(evidence_index_path, errors)
+        if isinstance(evidence_index, dict):
+            if evidence_index.get("schema_version") != 3:
+                errors.append(f"evidence-index must use schema_version 3 in {evidence_index_path}")
+            records = evidence_index.get("records")
+            if not isinstance(records, list):
+                errors.append(f"evidence-index records must be a list in {evidence_index_path}")
+            else:
+                indexed_ids = [
+                    record.get("evidence_id")
+                    for record in records
+                    if isinstance(record, dict) and isinstance(record.get("evidence_id"), str)
+                ]
+                if set(indexed_ids) != seen_evidence:
+                    errors.append("evidence-index.json must index every evidence ID exactly once")
+                if len(indexed_ids) != len(set(indexed_ids)) or len(indexed_ids) != len(records):
+                    errors.append("evidence-index.json contains duplicate or malformed records")
+
+        final_report_path = run_root / "final" / "final-report.md"
+        if final_report_path.is_file():
+            final_report = final_report_path.read_text(encoding="utf-8")
+            missing_headings = sorted(heading for heading in FINAL_REQUIRED_HEADINGS if heading not in final_report)
+            if missing_headings:
+                errors.append(f"final report is missing required headings: {', '.join(missing_headings)}")
 
 
 def resolve_run_path(run_dir: Path, value: Any, field: str, errors: list[str]) -> Optional[Path]:
@@ -341,6 +888,10 @@ def validate_run(run_dir: Path) -> list[str]:
             ):
                 errors.append("v3 preflight_exceptions must contain warning, rationale, approved_by, and timestamp")
 
+    if state.get("status") not in RUN_STATUSES:
+        errors.append(f"invalid run status in {state_path}: {state.get('status')}")
+    microarchitecture_profile = state.get("research_profile") == MICROARCH_PROFILE
+
     raw_task_ids = state.get("task_ids", []) if isinstance(state, dict) else []
     if not isinstance(raw_task_ids, list):
         errors.append("run-state.json task_ids must be a list of strings")
@@ -361,8 +912,13 @@ def validate_run(run_dir: Path) -> list[str]:
         seen_task_ids.add(item)
         task_ids.append(item)
 
+    run_snapshot: Any = None
+    if microarchitecture_profile:
+        run_snapshot = validate_microarchitecture_state(state, state_path, task_ids, errors)
+
     seen_evidence: set[str] = set()
     evidence_owners: dict[str, str] = {}
+    evidence_artifact_refs: list[tuple[Path, str]] = []
     finding_refs: list[tuple[Path, list[str], str, str, Any]] = []
     policy_blocked_tasks: set[str] = set()
     task_records: dict[str, dict[str, Any]] = {}
@@ -379,6 +935,44 @@ def validate_run(run_dir: Path) -> list[str]:
             continue
         task_records[task_id] = task
         require_keys(task, TASK_REQUIRED, task_path, errors)
+        if microarchitecture_profile:
+            require_keys(task, MICROARCH_TASK_REQUIRED, task_path, errors)
+            if task.get("schema_version") != 3:
+                errors.append(f"microarchitecture task must use schema_version 3 in {task_path}")
+            resources = task.get("resource_requirements")
+            resource_fields = {"cpu", "memory_gb", "wall_time_minutes", "exclusive_resources"}
+            if not isinstance(resources, dict) or not resource_fields.issubset(resources):
+                errors.append(f"invalid resource_requirements in {task_path}")
+            elif (
+                not isinstance(resources.get("exclusive_resources"), list)
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in resources.get("exclusive_resources", [])
+                )
+                or any(
+                    value is not None
+                    and (isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0)
+                    for value in (
+                        resources.get("cpu"),
+                        resources.get("memory_gb"),
+                        resources.get("wall_time_minutes"),
+                    )
+                )
+            ):
+                errors.append(f"malformed resource_requirements in {task_path}")
+            if task.get("execution_mode") not in MICROARCH_EXECUTION_MODES:
+                errors.append(f"invalid microarchitecture execution_mode in {task_path}: {task.get('execution_mode')}")
+            task_snapshot = task.get("target_snapshot")
+            validate_target_snapshot(task_snapshot, task_path, errors, require_pinned=True)
+            if snapshot_identity(task_snapshot) != snapshot_identity(run_snapshot):
+                errors.append(f"task target snapshot differs from run snapshot in {task_path}")
+            expected_target_classes = EXECUTION_TARGET_CLASSES.get(task.get("execution_mode"))
+            if (
+                expected_target_classes
+                and isinstance(task_snapshot, dict)
+                and task_snapshot.get("target_class") not in expected_target_classes
+            ):
+                errors.append(f"execution_mode and target_class disagree in {task_path}")
         if task.get("task_id") != task_id:
             errors.append(f"task ID mismatch in {task_path}")
         status = task.get("status")
@@ -389,9 +983,17 @@ def validate_run(run_dir: Path) -> list[str]:
         dependencies = task.get("dependencies", [])
         if not isinstance(dependencies, list) or any(dep not in task_ids for dep in dependencies):
             errors.append(f"unknown or malformed dependency in {task_path}")
+        elif task_id in dependencies:
+            errors.append(f"task cannot depend on itself in {task_path}")
         attempts = task.get("attempts")
         max_attempts = task.get("max_attempts")
-        if not isinstance(attempts, int) or not isinstance(max_attempts, int) or attempts > max_attempts:
+        if (
+            not isinstance(attempts, int)
+            or not isinstance(max_attempts, int)
+            or attempts < 0
+            or max_attempts < 0
+            or attempts > max_attempts
+        ):
             errors.append(f"invalid attempt budget in {task_path}")
         fallback_of = task.get("fallback_of")
         if fallback_of is not None and (
@@ -439,9 +1041,12 @@ def validate_run(run_dir: Path) -> list[str]:
                     errors.append(f"active_authorized task lacks run approval in {task_path}")
                 if schema_version >= 3 and boundary == "active_authorized":
                     approval = state.get("active_testing_approval", {})
+                    if not isinstance(approval, dict):
+                        approval = {}
                     if approval_ref != approval.get("approval_id"):
                         errors.append(f"active task approval_ref mismatch in {task_path}")
-                    if task_id not in approval.get("approved_task_ids", []):
+                    approved_task_ids = approval.get("approved_task_ids", [])
+                    if not isinstance(approved_task_ids, list) or task_id not in approved_task_ids:
                         errors.append(f"active task absent from approved_task_ids in {task_path}")
                 if schema_version >= 3 and boundary == "non_operational" and approval_ref is not None:
                     errors.append(f"non_operational task must have null approval_ref in {task_path}")
@@ -449,6 +1054,24 @@ def validate_run(run_dir: Path) -> list[str]:
                     dep not in task_ids for dep in composition_dependencies
                 ):
                     errors.append(f"unknown or malformed composition dependency in {task_path}")
+                executable = task.get("execution_mode") not in {"read-only", "passive-research"}
+                if microarchitecture_profile and executable and task_class != "active_validation":
+                    errors.append(f"executable microarchitecture task must use active_validation in {task_path}")
+                if microarchitecture_profile and task_class == "active_validation" and not executable:
+                    errors.append(f"active_validation microarchitecture task requires an executable mode in {task_path}")
+                if (
+                    microarchitecture_profile
+                    and task.get("execution_mode") in {"fpga", "silicon"}
+                    and state.get("authorization_tier") != "A2"
+                ):
+                    errors.append(f"fpga or silicon execution requires authorization tier A2 in {task_path}")
+                allowed_actions = task.get("allowed_actions")
+                if not isinstance(allowed_actions, list) or any(
+                    not isinstance(action, str) for action in allowed_actions
+                ):
+                    errors.append(f"allowed_actions must be a list of strings in {task_path}")
+                elif isinstance(active_actions, list) and not set(active_actions).issubset(allowed_actions):
+                    errors.append(f"active_actions must be declared in allowed_actions in {task_path}")
 
         evidence_path = task_dir / "evidence.jsonl"
         if evidence_path.exists():
@@ -480,6 +1103,12 @@ def validate_run(run_dir: Path) -> list[str]:
                     not isinstance(item, str) or not item.strip() for item in supports
                 ):
                     errors.append(f"evidence supports must be a non-empty list of strings at {evidence_path}:{line_no}")
+                artifact_id = record.get("artifact_id")
+                if artifact_id is not None:
+                    if not isinstance(artifact_id, str) or not artifact_id.strip():
+                        errors.append(f"evidence artifact_id must be a non-empty string at {evidence_path}:{line_no}")
+                    else:
+                        evidence_artifact_refs.append((evidence_path, artifact_id))
 
         for finding_path in sorted(task_dir.glob("finding-*.json")):
             finding = load_json(finding_path, errors)
@@ -509,6 +1138,20 @@ def validate_run(run_dir: Path) -> list[str]:
                     )
                 )
 
+    if microarchitecture_profile:
+        validate_task_graph(state, task_records, state_path, errors)
+        resume = state.get("resume", {})
+        expected_resume_statuses = {
+            "completed_tasks": {"completed"},
+            "retryable_tasks": {"retryable_error"},
+            "blocked_tasks": TERMINAL_TASK_STATUSES - {"completed", "cancelled"},
+        }
+        if isinstance(resume, dict):
+            for field, statuses in expected_resume_statuses.items():
+                for task_id in resume.get(field, []) if isinstance(resume.get(field), list) else []:
+                    if task_id in task_records and task_records[task_id].get("status") not in statuses:
+                        errors.append(f"resume.{field} disagrees with task status for {task_id}")
+
     for task_id, task in task_records.items():
         if task.get("status") == "completed":
             validate_completed_task_outputs(run_root, task_id, task, errors)
@@ -517,7 +1160,8 @@ def validate_run(run_dir: Path) -> list[str]:
         active_approval = state.get("active_testing_approval", {})
         if isinstance(active_approval, dict) and active_approval.get("approved") is True:
             approval_id = active_approval.get("approval_id")
-            for approved_task_id in active_approval.get("approved_task_ids", []):
+            approved_task_ids = active_approval.get("approved_task_ids", [])
+            for approved_task_id in approved_task_ids if isinstance(approved_task_ids, list) else []:
                 approved_task = task_records.get(approved_task_id)
                 if approved_task is None:
                     errors.append(f"approved_task_ids references unknown task: {approved_task_id}")
@@ -555,6 +1199,23 @@ def validate_run(run_dir: Path) -> list[str]:
                     f"{verdict} finding requires an independent verifier with completed artifacts and cited verifier evidence: "
                     f"{finding_path}"
                 )
+
+    if microarchitecture_profile:
+        validate_microarchitecture_artifacts(
+            run_root,
+            state,
+            run_snapshot,
+            task_records,
+            evidence_artifact_refs,
+            seen_evidence,
+            errors,
+        )
+    elif (
+        (run_root / "experiments").exists()
+        or (run_root / "artifacts" / "manifest.jsonl").exists()
+        or evidence_artifact_refs
+    ):
+        errors.append("experiment contracts and generated artifacts require research_profile microarchitecture-security")
 
     if schema_version >= 2:
         policy_event_tasks: set[str] = set()

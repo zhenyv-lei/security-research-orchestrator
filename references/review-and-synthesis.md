@@ -10,6 +10,8 @@ Apply these gates to every material finding:
 4. **Reachability gate** — the relevant path is reachable under stated configuration.
 5. **Protection gate** — environmental and application protections are considered.
 6. **Counterexample gate** — common false-positive explanations were tested.
+7. **Reproducibility gate** — quantitative claims identify the snapshot, workload, seeds/repetitions, raw artifact, and analysis method.
+8. **Interpretation gate** — architectural correctness, microarchitectural behavior, security impact, and mitigation cost are not conflated.
 
 Failure at any gate prevents a `verified` verdict.
 
@@ -37,6 +39,7 @@ Provide the synthesis agent only normalized artifacts:
 - scope and completion criteria;
 - verified, corroborated, candidate, rejected, and blocked findings;
 - evidence index;
+- design snapshot, experiment matrix, artifact manifest, and reproducibility status when present;
 - coverage matrix;
 - conflicts and limitations;
 - final-report template.
@@ -58,3 +61,5 @@ Require the synthesizer to:
 - Task closure: 100% of tasks have a valid terminal state.
 - Conflict disclosure: 100% of unresolved material conflicts appear in limitations.
 - Redaction: no raw secrets or unnecessary personal data remain.
+- Reproducibility: 100% of accepted quantitative claims map to a pinned snapshot and hash-verified raw artifact.
+- Experiment control: every accepted microarchitecture measurement records controls or a justified deterministic design.

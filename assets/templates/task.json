@@ -1,11 +1,21 @@
 {
+  "schema_version": 3,
   "task_id": "SR-001",
   "role": "context",
+  "phase": "context-map",
+  "execution_mode": "read-only",
   "objective": "",
   "research_question": "",
   "dependencies": [],
   "assigned_paths": [],
   "inputs": [],
+  "target_snapshot": null,
+  "resource_requirements": {
+    "cpu": null,
+    "memory_gb": null,
+    "wall_time_minutes": null,
+    "exclusive_resources": []
+  },
   "allowed_actions": [],
   "prohibited_actions": [],
   "expected_outputs": ["report.md", "evidence.jsonl"],

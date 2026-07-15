@@ -1,6 +1,6 @@
 ---
 name: security-research-orchestrator
-description: Orchestrate authorized defensive security research by defining scope, decomposing work into independent evidence-bearing tasks, dispatching isolated worker agents, verifying findings, recovering from technical interruptions, and assigning a fresh synthesis agent. Use for multi-agent source-code audits, CVE and supply-chain investigations, threat modeling, defensive architecture reviews, false-positive verification, or long-running security research that needs checkpoints, resumable state, and a final evidence-backed report. Triggers include "安全研究编排", "多 Agent 安全审计", "拆分安全研究", "security research orchestration", "coordinate security audit", and "resume security research".
+description: Orchestrate authorized defensive security and computer-architecture research by defining scope, decomposing work into independent evidence-bearing tasks and approved experiments, dispatching isolated worker agents, verifying findings, and preserving resumable state. Use for multi-agent source-code audits, CVE and supply-chain investigations, threat modeling, defensive microarchitecture or ISA studies, RTL and simulator reviews, false-positive verification, and long-running research that needs reproducible artifacts and a final evidence-backed report. Triggers include "安全研究编排", "微架构安全研究", "多 Agent 安全审计", "拆分安全研究", "security research orchestration", "coordinate security audit", and "resume security research".
 ---
 
 # Security Research Orchestrator
@@ -11,6 +11,7 @@ Coordinate research; do not replace domain experts. Keep the manager responsible
 
 - Read [references/authorization-and-safety.md](references/authorization-and-safety.md) before any active testing, external interaction, or ambiguous dual-use work.
 - Read [references/research-profiles.md](references/research-profiles.md) when selecting tasks for a code audit, CVE investigation, or threat model.
+- Read [references/microarchitecture-research.md](references/microarchitecture-research.md) for ISA, RTL, simulator, processor-pipeline, cache, predictor, memory-system, FPGA, silicon, or side-channel research.
 - Read [references/task-and-evidence-contracts.md](references/task-and-evidence-contracts.md) before dispatching workers or accepting their artifacts.
 - Read [references/review-and-synthesis.md](references/review-and-synthesis.md) before verifying findings or assigning the synthesis agent.
 - Read [references/recovery-and-resume.md](references/recovery-and-resume.md) when a run is interrupted, blocked, or resumed.
@@ -28,6 +29,8 @@ Coordinate research; do not replace domain experts. Keep the manager responsible
 7. Report blocked and unverified areas explicitly; never let the synthesizer infer missing operational steps.
 8. Treat task granularity as a quality and isolation control, never as a way to lower or bypass safety review.
 9. Give a discovery worker one resource family, one answerable question, and one evidence goal. Keep operational testing in a separately approved task.
+10. Pin commit, RTL configuration, toolchain, target class, workload, and seed policy before comparing microarchitectural results.
+11. Separate architectural correctness, microarchitectural observation, security interpretation, and mitigation cost; evidence for one does not establish the others.
 
 ## Phase 0: Intake and Safety Gate
 
@@ -39,6 +42,7 @@ Collect these fields before decomposition:
 - active-testing approval, time window, and rate limits;
 - sensitive-data handling and output audience;
 - desired deliverable and completion criteria.
+- for architecture research: ISA and privilege assumptions, design commit and configuration, simulator or hardware target, reference model, workload provenance, observables, and resource budget.
 
 Classify the run using `references/authorization-and-safety.md`. If authorization is absent or ambiguous, restrict the run to passive public-source research, local artifact review, defensive threat modeling, and remediation analysis.
 
@@ -50,7 +54,9 @@ Classify the requested output and each proposed task using `references/policy-aw
 
 Before scanning, dynamic probing, proof-of-concept execution, credential use, or interaction with a non-local target, show the exact target, method, expected traffic or mutation, rollback plan, and authorization evidence. Wait for explicit user approval.
 
-Output: a completed `run-state.json` with scope, authorization tier, constraints, and approval status.
+For `microarchitecture-security`, set `research_profile`, complete `scope.target_snapshot`, and preserve the general authorization packet in addition to the v3 active-testing packet. Static RTL inspection may remain `non_operational`; simulation, formal execution, FPGA, silicon, probing, or measurement is active work and requires approval.
+
+Output: a completed `run-state.json` with scope, authorization tier, constraints, approval status, and any required target snapshot.
 
 ## Phase 1: Build the Research Task Graph
 
@@ -67,6 +73,8 @@ For every task:
 5. Assign a role: context, discovery, analysis, verification, mitigation, or synthesis.
 6. Add stop and escalation conditions.
 7. Complete the structured `safety` block: defensive purpose, task class, capability boundary, resource scope, evidence goal, active actions, composition dependencies, and safe fallback.
+
+For a microarchitecture profile, also complete `phase`, `execution_mode`, `target_snapshot`, and `resource_requirements`. Make the task snapshot match the run snapshot. If a task will execute or measure a target, classify it as `active_validation`, bind it to the approval packet, and create `experiments/<experiment-id>/experiment.json` with one falsifiable hypothesis, controls, variables, seed/repetition policy, observables, stop criteria, and resource budget.
 
 Apply the bounded-task test before dispatch:
 
@@ -88,7 +96,11 @@ python3 scripts/preflight_tasks.py /absolute/path/to/run --strict-v3
 
 Preflight always requires schema v3, even when the flag is omitted. Use `validate_run.py` only to read legacy v1/v2 archives; migrate before dispatch. Fix errors before starting workers. Treat warnings as manager review items and record accepted exceptions in `run-state.json`.
 
-Output: `tasks/<task-id>/task.json` files, an updated dependency graph in `run-state.json`, and a passing preflight.
+**🔴 CHECKPOINT · 🛑 STOP — TASK GRAPH**
+
+For active testing, FPGA/silicon access, sensitive private artifacts, or material composition risk, show the dependency graph, runnable waves, exclusive resources, target snapshot, authorization inheritance, and combined-output review. Wait for explicit approval before dispatching the first worker.
+
+Output: `tasks/<task-id>/task.json` files, an updated dependency graph in `run-state.json`, optional approved experiment contracts, and a passing preflight.
 
 ## Phase 2: Dispatch Isolated Workers
 
@@ -105,10 +117,13 @@ Require each worker to:
 - redact secrets and personal data;
 - declare unknowns, conflicts, and incomplete work;
 - return a concise completion summary plus artifact paths.
+- for approved architecture experiments, record exact commands, tool versions, target snapshot, seeds, exit status, and hashes for generated artifacts.
 
 Do not let workers hand off tasks directly. Route all new work proposals through the manager so authorization, dependencies, and composition risk remain centralized.
 
-Output: task reports, `evidence.jsonl`, candidate `finding-*.json` files, and updated task status.
+Write each generated experiment artifact under its owning `experiments/<experiment-id>/results/` directory and register it in `artifacts/manifest.jsonl`. Do not place generated output beside design inputs or shared workloads.
+
+Output: task reports, `evidence.jsonl`, candidate `finding-*.json` files, experiment results and manifest records when approved, and updated task status.
 
 ## Phase 3: Normalize and Verify Findings
 
@@ -130,6 +145,8 @@ Require the verifier to test the claim independently against the cited artifact,
 
 When two reports conflict, dispatch an independent verifier with both evidence sets but without either worker's confidence score. Preserve unresolved disagreement in the final report.
 
+For microarchitecture findings, require a counterfactual or control configuration when feasible. A waveform screenshot or performance delta is not by itself a security finding: connect stimulus, state transition, squash or commit behavior, observable, threat model, and confounder checks. Quantitative claims require repeated trials or a justified deterministic design.
+
 Output: normalized findings, verification verdicts, conflict records, and evidence index.
 
 ## Phase 4: Assign a Fresh Synthesis Agent
@@ -139,6 +156,7 @@ Wait for all runnable discovery and verification tasks to reach a terminal state
 - the approved scope and completion criteria;
 - normalized findings and verdicts;
 - the evidence index;
+- the pinned design snapshot, experiment matrix, artifact manifest, and reproducibility status when present;
 - unresolved conflicts, blocked tasks, and coverage gaps;
 - the final-report template and synthesis rules.
 
@@ -154,6 +172,7 @@ Accept the run only when:
 
 - every task has a valid terminal status;
 - every accepted claim maps to evidence and a verdict;
+- every quantitative result maps to a pinned configuration, workload, seed/repetition policy, raw artifact, and analysis method;
 - high-impact findings received independent verification;
 - blocked work and uncertainty are visible;
 - the combined report remains within authorization and safety boundaries;
@@ -178,6 +197,8 @@ For reports containing sensitive vulnerabilities, private code, personal data, o
 | Safety or policy refusal | Mark `policy_blocked`, append `policy-events.jsonl`, preserve visible failure artifacts, and do not retry | Create a materially safer defensive task with `fallback_of`, or request human review |
 | Subagents unavailable | Execute the same task contracts sequentially | Mark evaluation as non-independent |
 | Validation script fails | Fix schema or artifact paths, then rerun | Do not synthesize invalid artifacts |
+| Build, simulation, or hardware resource exhaustion | Preserve logs, command, snapshot, and checkpoint; retry only within the recorded budget | Create a new experiment revision for changed workloads, seeds, instrumentation, or configuration |
+| Reference-model, assertion, or waveform mismatch | Preserve both artifacts and assign independent triage | Do not classify the mismatch as a security finding without a threat-model link |
 
 ## Anti-Patterns and Blacklist
 
@@ -195,6 +216,8 @@ Do not:
 - include credentials, secrets, personal data, persistence, stealth, or destructive actions in outputs;
 - let the synthesis agent invent missing evidence or hide incomplete coverage;
 - claim completion because workers reported success without checking artifacts.
+- compare results from different commits, RTL configurations, toolchains, workloads, or seeds as one controlled experiment;
+- infer leakage or exploitability from timing or counter variance without controls, repetitions, and an explicit observation model.
 
 ## Run Layout
 
@@ -203,6 +226,12 @@ Do not:
 ├── run-state.json
 ├── policy-events.jsonl
 ├── blocked-worker-log.md
+├── experiments/
+│   └── EXP-001/
+│       ├── experiment.json
+│       └── results/
+├── artifacts/
+│   └── manifest.jsonl
 ├── tasks/
 │   └── SR-001/
 │       ├── task.json
