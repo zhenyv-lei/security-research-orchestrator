@@ -1,0 +1,4 @@
+interface:
+  display_name: "学术流程与架构图"
+  short_description: "为论文流程图、系统架构图和概念关系图生成专业绘图说明"
+  default_prompt: "Use $figures-diagram to turn this research mechanism into a publication-ready architecture or flow diagram specification."

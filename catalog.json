@@ -39,6 +39,63 @@
           ]
         }
       ]
+    },
+    {
+      "id": "writing",
+      "description": "Research-paper structure, argumentation, technical consistency, and academic-language editing.",
+      "skills": [
+        {
+          "name": "cs-research-paper",
+          "path": "skills/writing/cs-research-paper",
+          "entrypoint": "skills/writing/cs-research-paper/SKILL.md",
+          "tags": [
+            "uarch-writing",
+            "computer-science",
+            "thesis",
+            "academic-writing",
+            "microarchitecture"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "visualization",
+      "description": "Publication-ready research diagrams and reproducible data figures.",
+      "skills": [
+        {
+          "name": "figures-diagram",
+          "path": "skills/visualization/figures-diagram",
+          "entrypoint": "skills/visualization/figures-diagram/SKILL.md",
+          "tags": [
+            "drawing",
+            "architecture-diagram",
+            "flowchart",
+            "conceptual-diagram"
+          ],
+          "origin": {
+            "repository": "https://github.com/Norman-bury/research-writing-skill",
+            "license": "MIT",
+            "license_file": "licenses/research-writing-skill-MIT.txt"
+          }
+        },
+        {
+          "name": "figures-python",
+          "path": "skills/visualization/figures-python",
+          "entrypoint": "skills/visualization/figures-python/SKILL.md",
+          "tags": [
+            "drawing",
+            "data-visualization",
+            "python",
+            "publication-figure",
+            "reproducibility"
+          ],
+          "origin": {
+            "repository": "https://github.com/Norman-bury/research-writing-skill",
+            "license": "MIT",
+            "license_file": "licenses/research-writing-skill-MIT.txt"
+          }
+        }
+      ]
     }
   ],
   "relationships": [
@@ -46,6 +103,21 @@
       "from": "research-template-compiler",
       "to": "security-research-orchestrator",
       "type": "produces-task-graph-for"
+    },
+    {
+      "from": "security-research-orchestrator",
+      "to": "cs-research-paper",
+      "type": "provides-verified-material-for"
+    },
+    {
+      "from": "cs-research-paper",
+      "to": "figures-diagram",
+      "type": "requests-conceptual-figures-from"
+    },
+    {
+      "from": "cs-research-paper",
+      "to": "figures-python",
+      "type": "requests-data-figures-from"
     }
   ]
 }

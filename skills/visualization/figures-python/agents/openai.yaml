@@ -1,0 +1,4 @@
+interface:
+  display_name: "论文数据图表"
+  short_description: "使用可复现 Python 脚本生成论文级数据图、PNG 与 SVG"
+  default_prompt: "Use $figures-python to create a reproducible publication-quality plot from this research dataset."

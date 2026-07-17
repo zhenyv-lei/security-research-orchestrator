@@ -1,0 +1,6 @@
+interface:
+  display_name: "计算机科学论文润色"
+  short_description: "硕士学位论文结构、论证逻辑、技术内容与学术表达优化"
+  default_prompt: "Use $cs-research-paper to review and polish a computer science thesis chapter."
+policy:
+  allow_implicit_invocation: true

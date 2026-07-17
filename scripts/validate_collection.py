@@ -67,6 +67,26 @@ def main() -> int:
                 errors.append(f"SKILL.md name does not match catalog: {name}")
             if not (path / "agents" / "openai.yaml").is_file():
                 errors.append(f"missing agents/openai.yaml: {name}")
+            origin = skill.get("origin")
+            if origin is not None:
+                if not isinstance(origin, dict):
+                    errors.append(f"origin must be an object: {name}")
+                else:
+                    license_value = origin.get("license")
+                    license_file_value = origin.get("license_file")
+                    if not isinstance(license_value, str) or not license_value:
+                        errors.append(f"origin license must be non-empty: {name}")
+                    if not isinstance(license_file_value, str) or not license_file_value:
+                        errors.append(f"origin license_file must be non-empty: {name}")
+                    else:
+                        license_path = (ROOT / license_file_value).resolve()
+                        try:
+                            license_path.relative_to(ROOT)
+                        except ValueError:
+                            errors.append(f"origin license_file escapes repository: {name}")
+                        else:
+                            if not license_path.is_file():
+                                errors.append(f"missing origin license_file: {name}")
 
     discovered = {
         path.parent.resolve()
@@ -79,6 +99,24 @@ def main() -> int:
         errors.append("uncataloged skills: " + ", ".join(undeclared))
     if missing:
         errors.append("catalog paths without SKILL.md: " + ", ".join(missing))
+
+    relationships = catalog.get("relationships")
+    if not isinstance(relationships, list):
+        errors.append("catalog.relationships must be a list")
+    else:
+        for relationship in relationships:
+            if not isinstance(relationship, dict):
+                errors.append("every catalog relationship must be an object")
+                continue
+            source = relationship.get("from")
+            target = relationship.get("to")
+            relation_type = relationship.get("type")
+            if source not in declared:
+                errors.append(f"relationship has unknown source: {source}")
+            if target not in declared:
+                errors.append(f"relationship has unknown target: {target}")
+            if not isinstance(relation_type, str) or not relation_type:
+                errors.append("relationship type must be a non-empty string")
 
     for path in ROOT.rglob("*.json"):
         if ".git" in path.parts:
