@@ -1,0 +1,157 @@
+{
+  "schema_version": "1.0",
+  "template_id": "microarchitecture-security",
+  "description": "Microarchitecture and ISA security research using pinned design snapshots and controlled experiment slots.",
+  "extends": "base-research.json",
+  "locked_context": {
+    "authorization_tier": "A1",
+    "active_testing_approved": false,
+    "allowed_actions": [
+      "read-only RTL review",
+      "local controlled simulation",
+      "defensive architecture analysis"
+    ],
+    "prohibited_actions": [
+      "interaction with unauthorized targets",
+      "safety-review circumvention",
+      "unbounded exploit development",
+      "secret disclosure"
+    ],
+    "data_handling": "Keep RTL and experiment artifacts local unless explicitly approved.",
+    "output_audience": "authorized research team",
+    "terminology_profile": "microarchitecture-research-zh"
+  },
+  "slots": [
+    {
+      "slot_id": "TARGET_SNAPSHOT",
+      "kind": "evidence",
+      "prompt": "Pin the repository, commit, submodules, RTL configuration, ISA assumptions, target class, tools, reference model, and workloads.",
+      "depends_on": ["SCOPE"],
+      "consumes": ["SCOPE.research_scope"],
+      "produces": ["target_snapshot"],
+      "required_keywords": ["design_identity", "tool_versions", "workload_provenance", "resource_limits"],
+      "acceptance_criteria": ["Commit and configuration are immutable.", "Tools and workloads have stable identifiers."],
+      "max_candidates": 1,
+      "stop_conditions": ["The target cannot be pinned.", "The repository is unexpectedly dirty."],
+      "escalation_conditions": ["A hardware target or external service requires authorization."],
+      "exclusive_resources": []
+    },
+    {
+      "slot_id": "ARCH_MAP",
+      "kind": "evidence",
+      "prompt": "Map relevant pipeline structures, speculative boundaries, privilege transitions, state, observables, and validation hooks.",
+      "depends_on": ["TARGET_SNAPSHOT"],
+      "consumes": ["TARGET_SNAPSHOT.target_snapshot"],
+      "produces": ["components", "security_boundaries", "available_observables"],
+      "required_keywords": ["architectural_state", "microarchitectural_state", "existing_probes", "missing_observability"],
+      "acceptance_criteria": ["Mappings have source locators.", "Architectural and microarchitectural state are separated."],
+      "max_candidates": 1,
+      "stop_conditions": ["Relevant design sources are unavailable."],
+      "escalation_conditions": ["New instrumentation would change the design snapshot."],
+      "exclusive_resources": []
+    },
+    {
+      "slot_id": "CONTEXT",
+      "kind": "evidence",
+      "prompt": "Build a threat- and source-bound system model from the research scope, target snapshot, and architecture map.",
+      "depends_on": ["SCOPE", "TARGET_SNAPSHOT", "ARCH_MAP"],
+      "consumes": ["SCOPE.research_scope", "TARGET_SNAPSHOT.target_snapshot", "ARCH_MAP.security_boundaries"],
+      "produces": ["system_model", "source_index"],
+      "required_keywords": ["known_facts", "threat_assumptions", "source_quality", "missing_context"],
+      "acceptance_criteria": ["Facts have locators.", "Threat assumptions are explicit.", "No hypothesis is presented as fact."],
+      "max_candidates": 1,
+      "stop_conditions": ["Required source artifacts are unavailable."],
+      "escalation_conditions": ["A new external source or sensitive artifact is required."],
+      "exclusive_resources": []
+    },
+    {
+      "slot_id": "OBSERVATION_MODEL",
+      "kind": "generative",
+      "prompt": "Define attacker-controlled inputs, protected state, observable signals, privilege, granularity, noise, and confounders.",
+      "depends_on": ["ARCH_MAP"],
+      "consumes": ["ARCH_MAP.components", "ARCH_MAP.available_observables"],
+      "produces": ["observation_model"],
+      "required_keywords": ["attacker_control", "protected_state", "observable_signal", "noise_and_confounders"],
+      "acceptance_criteria": ["Control and observability are not assumed.", "Noise and privilege are explicit."],
+      "max_candidates": 3,
+      "stop_conditions": ["No defensible observation model exists."],
+      "escalation_conditions": ["Observation requires unauthorized access."],
+      "exclusive_resources": []
+    },
+    {
+      "slot_id": "HYPOTHESES",
+      "kind": "generative",
+      "prompt": "Generate distinct, falsifiable security hypotheses linking control, microarchitectural state, protected state, and observation.",
+      "depends_on": ["QUESTIONS", "ARCH_MAP", "OBSERVATION_MODEL"],
+      "consumes": [
+        "QUESTIONS.research_questions",
+        "ARCH_MAP.components",
+        "ARCH_MAP.security_boundaries",
+        "OBSERVATION_MODEL.observation_model"
+      ],
+      "produces": ["hypotheses"],
+      "required_keywords": ["candidate_hypotheses", "strongest_alternative", "falsification_conditions", "security_relevance"],
+      "acceptance_criteria": ["Each hypothesis is falsifiable.", "Security relevance is distinct from performance variation.", "Alternatives are materially distinct."],
+      "max_candidates": 5,
+      "stop_conditions": ["No hypothesis links control, state, and observation."],
+      "escalation_conditions": ["Testing requires a new target or action class."],
+      "exclusive_resources": []
+    },
+    {
+      "slot_id": "METHODS",
+      "kind": "derived",
+      "prompt": "Derive, but do not execute, an authorization-bounded validation matrix that distinguishes hypotheses and countermodels while preserving the pinned snapshot. At A0, use only passive analysis and label active methods as future work behind a new authorization gate.",
+      "depends_on": ["TARGET_SNAPSHOT", "HYPOTHESES", "COUNTERMODELS", "OBSERVATION_MODEL"],
+      "consumes": [
+        "TARGET_SNAPSHOT.target_snapshot",
+        "HYPOTHESES.hypotheses",
+        "COUNTERMODELS.countermodels",
+        "OBSERVATION_MODEL.observation_model"
+      ],
+      "produces": ["methods", "experiment_matrix"],
+      "required_keywords": ["independent_variables", "dependent_variables", "controls", "seed_and_repetition_policy", "inconclusive_conditions"],
+      "acceptance_criteria": ["Every current action is allowed by locked authorization; other methods are future-only or blocked.", "Only declared independent variables change.", "Controls and repetitions address confounders.", "Resource locks are explicit."],
+      "max_candidates": 3,
+      "stop_conditions": ["The experiment would change an undeclared controlled variable."],
+      "escalation_conditions": ["A method requires active external testing or unavailable hardware."],
+      "exclusive_resources": []
+    },
+    {
+      "slot_id": "VERIFICATION",
+      "kind": "verification",
+      "prompt": "Independently verify the snapshot, architecture mapping, hypotheses, countermodels, experiment matrix, evidence plan, and template challenge.",
+      "depends_on": [
+        "TARGET_SNAPSHOT",
+        "ARCH_MAP",
+        "CONTEXT",
+        "QUESTIONS",
+        "OBSERVATION_MODEL",
+        "HYPOTHESES",
+        "COUNTERMODELS",
+        "METHODS",
+        "EVIDENCE_PLAN",
+        "TEMPLATE_CHALLENGE"
+      ],
+      "consumes": [
+        "TARGET_SNAPSHOT.target_snapshot",
+        "ARCH_MAP.components",
+        "CONTEXT.system_model",
+        "QUESTIONS.research_questions",
+        "OBSERVATION_MODEL.observation_model",
+        "HYPOTHESES.hypotheses",
+        "COUNTERMODELS.countermodels",
+        "METHODS.experiment_matrix",
+        "EVIDENCE_PLAN.evidence_plan",
+        "TEMPLATE_CHALLENGE.template_challenge"
+      ],
+      "produces": ["verified_packet"],
+      "required_keywords": ["supported_claims", "contradicted_claims", "unresolved_claims", "snapshot_consistency", "confounder_review", "limitations"],
+      "acceptance_criteria": ["Reviewed slots are named.", "Snapshot identity is consistent.", "Functional, microarchitectural, security, and performance claims are separated."],
+      "max_candidates": 1,
+      "stop_conditions": ["Required upstream proposals are missing."],
+      "escalation_conditions": ["Verification discovers unsafe composition, scope drift, or target drift."],
+      "exclusive_resources": []
+    }
+  ],
+  "synthesis_slot": "SYNTHESIS"
+}

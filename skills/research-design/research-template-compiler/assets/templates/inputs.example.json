@@ -1,0 +1,29 @@
+{
+  "locked_context": {
+    "authorization_tier": "A1",
+    "active_testing_approved": false,
+    "allowed_actions": [
+      "read-only review",
+      "local controlled simulation"
+    ],
+    "prohibited_actions": [
+      "external target interaction"
+    ],
+    "data_handling": "local only",
+    "output_audience": "research team",
+    "terminology_profile": "domain-precise"
+  },
+  "provided_slots": {
+      "SCOPE": {
+        "research_scope": {
+          "research_object": "",
+          "research_question": "",
+          "authorized_sources": [],
+          "scope": [],
+        "non_goals": [],
+        "deliverable": "",
+        "completion_criteria": []
+      }
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "collection_id": "research-agent-skills",
+  "categories": [
+    {
+      "id": "orchestration",
+      "description": "Run-level coordination, bounded dispatch, recovery, evidence, verification, and synthesis.",
+      "skills": [
+        {
+          "name": "security-research-orchestrator",
+          "path": "skills/orchestration/security-research-orchestrator",
+          "entrypoint": "skills/orchestration/security-research-orchestrator/SKILL.md",
+          "tags": [
+            "multi-agent",
+            "orchestration",
+            "microarchitecture",
+            "evidence",
+            "verification",
+            "recovery"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "research-design",
+      "description": "Question decomposition, declarative research templates, typed slots, and task-interface compilation.",
+      "skills": [
+        {
+          "name": "research-template-compiler",
+          "path": "skills/research-design/research-template-compiler",
+          "entrypoint": "skills/research-design/research-template-compiler/SKILL.md",
+          "tags": [
+            "multi-agent",
+            "research-design",
+            "cloze-template",
+            "task-isolation",
+            "dag",
+            "microarchitecture"
+          ]
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "from": "research-template-compiler",
+      "to": "security-research-orchestrator",
+      "type": "produces-task-graph-for"
+    }
+  ]
+}

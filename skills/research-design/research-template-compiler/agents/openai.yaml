@@ -1,0 +1,4 @@
+interface:
+  display_name: "研究模板编译器"
+  short_description: "将研究问题编译为隔离槽位、精确术语、独立验证与汇总流程"
+  default_prompt: "Use $research-template-compiler to compile this research question into isolated fill-in-the-blank tasks, apply a semantically faithful domain terminology profile, and produce a verified synthesis plan."
